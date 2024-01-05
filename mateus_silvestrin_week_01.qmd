@@ -1,0 +1,84 @@
+---
+title: "Homework - week 1"
+author: "Mateus Silvestrin"
+format: pdf
+---
+
+```{r}
+#| message: false
+library(dplyr)
+library(tibble)
+library(ggplot2)
+
+theme_set(theme_bw(16, base_family = "Latin Modern"))
+```
+
+
+### 1. Suppose the globe tossing data (Lecture 2, Chapter 2) had turned out to
+be 3 water and 11 land. Construct the posterior distribution.
+
+To do this, we only need to change the call to `dbinom`. In the original example we had 6 water draws, so that went into the `x` argument of the function. Also, the original example had a total of nine draws, and that went into the `size` argument. We change that value accordingly.
+```{r}
+p_grid <- seq( from=0 , to=1 , length.out=1000 )
+prob_p <- rep( 1 , 1000 )
+prob_data <- dbinom( 3 , size=14 , prob=p_grid ) # changes are here
+posterior <- prob_data * prob_p
+posterior <- posterior / sum(posterior)
+```
+
+
+```{r}
+tibble("Probability of water"  = p_grid,
+           "Posterior probability" = posterior) |>
+  ggplot(aes(`Probability of water`,`Posterior probability`))+
+  geom_line(colour = "lightskyblue",
+            linewidth = 2)+
+  labs(title = "Posterior distribution for the globe model", 
+       caption = "Observed values = 3W, 11L.")
+```
+
+
+### 2. Using the posterior distribution from 1, compute the posterior predictive
+distribution for the next 5 tosses of the same globe. I recommend you use
+the sampling method.
+
+First, sample from the posterior distribution:
+
+```{r}
+samples <- sample(p_grid, prob=posterior, size=1e4, replace=TRUE)
+"Summary of samples:"
+summary(samples)
+```
+
+Simulate sampling from the samples of the posterior distribution:
+```{r}
+w <- rbinom( 1e4, size=5, prob=samples )
+"Summary of samples:"
+table(w)
+```
+
+
+Visualisation:
+```{r}
+tibble(w = w) |>
+  group_by(w) |>
+  count() |>
+  ungroup() |>
+  mutate(p = n/1e4) |>
+  ggplot(aes(w,p))+
+  geom_col(fill = "lightskyblue", 
+           colour = "gray20",
+           width = .3)+
+  scale_y_continuous(expand = expansion(c(0,.1)))+
+  labs(title = "Predictive posterior distribution",
+       subtitle = "(Five tosses)",
+       x = "Number of observed water")
+```
+
+
+
+```{r}
+rbinom(1e4, size = 5)
+sapply(1:1000, \(x) sample(x = p_grid ,size = 5, prob = posterior, replace = T))
+```
+

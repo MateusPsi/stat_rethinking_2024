@@ -1,0 +1,19 @@
+---
+title: "Online 01"
+date: "05/01/2023"
+format: html
+---
+
+"one of the things that has me confused is the difference between the posterior distribution and the posterior predicted distribution. I know that I need to do it and I can mechanistically write the code to get the right answer but I somehow don’t get the rationale for it."
+
+Posterior predictive distributions are predictions of observable variables based on the posterior distribution. For instance: observations (data).
+
+It's possible to do that with priors! Then check what it implies.
+
+"So if I understand correctly, you use the posterior distribution, plug it back into the generative model, and the results of that are the posterior predicted distribution"
+
+-------
+Likelihood vs Prior
+
+Observada vs Não-observada.
+

@@ -10,12 +10,11 @@ library(dplyr)
 library(tibble)
 library(ggplot2)
 
-theme_set(theme_bw(16, base_family = "Latin Modern"))
+theme_set(theme_bw(14))
 ```
 
 
-### 1. Suppose the globe tossing data (Lecture 2, Chapter 2) had turned out to
-be 3 water and 11 land. Construct the posterior distribution.
+### 1. Suppose the globe tossing data (Lecture 2, Chapter 2) had turned out to be 3 water and 11 land. Construct the posterior distribution.
 
 To do this, we only need to change the call to `dbinom`. In the original example we had 6 water draws, so that went into the `x` argument of the function. Also, the original example had a total of nine draws, and that went into the `size` argument. We change that value accordingly.
 ```{r}
@@ -38,13 +37,12 @@ tibble("Probability of water"  = p_grid,
 ```
 
 
-### 2. Using the posterior distribution from 1, compute the posterior predictive
-distribution for the next 5 tosses of the same globe. I recommend you use
-the sampling method.
+### 2. Using the posterior distribution from 1, compute the posterior predictive distribution for the next 5 tosses of the same globe. I recommend you use the sampling method.
 
 First, sample from the posterior distribution:
 
 ```{r}
+#| results: hold
 samples <- sample(p_grid, prob=posterior, size=1e4, replace=TRUE)
 "Summary of samples:"
 summary(samples)
@@ -52,6 +50,7 @@ summary(samples)
 
 Simulate sampling from the samples of the posterior distribution:
 ```{r}
+#| results: hold
 w <- rbinom( 1e4, size=5, prob=samples )
 "Summary of samples:"
 table(w)
@@ -69,16 +68,9 @@ tibble(w = w) |>
   geom_col(fill = "lightskyblue", 
            colour = "gray20",
            width = .3)+
-  scale_y_continuous(expand = expansion(c(0,.1)))+
+  scale_y_continuous(expand = expansion(c(0,.15)))+
   labs(title = "Predictive posterior distribution",
        subtitle = "(Five tosses)",
        x = "Number of observed water")
-```
-
-
-
-```{r}
-rbinom(1e4, size = 5)
-sapply(1:1000, \(x) sample(x = p_grid ,size = 5, prob = posterior, replace = T))
 ```
 

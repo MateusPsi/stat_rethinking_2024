@@ -1,0 +1,130 @@
+---
+title: "Homework - week 2"
+author: "Mateus Silvestrin"
+format: 
+  pdf:
+    documentclass: scrreprt
+    mainfont: "Liberation Serif"
+---
+
+```{r}
+#| message: false
+library(data.table)
+library(ggplot2)
+library(dagitty)
+library(rethinking)
+
+theme_set(theme_bw(14))
+```
+
+
+### 1.  From the Howell1 dataset, consider only the people younger than 13 years old. Estimate the causal association between age and weight. Assume that age influences weight through two paths. First, age influences height, and height influences weight. Second, age directly influences weight through age-related changes in muscle growth and body proportions. Draw the DAG that represents these causal relationships. And then write a generative simulation that takes age as an input and simulates height and weight, obeying the relationships in the DAG.
+
+```{r}
+dag_syntax <- '
+  dag {
+    Age [exposure,pos="-2.200,1.597"]
+    Height [pos="1.400,-1.460"]
+    Weight [outcome,pos="1.400,1.621"]
+    Age -> Height
+    Age -> Weight
+    Height -> Weight
+  }
+  '
+
+dagitty(dag_syntax) |>
+  plot()
+```
+
+
+```{r}
+data("Howell1")
+setDT(Howell1)
+
+d <- Howell1[age <=13]
+d |> 
+  ggplot(aes(age, weight))+
+  geom_jitter()+
+  stat_smooth(method = "lm")
+
+d |> 
+  ggplot(aes(age, height))+
+  geom_jitter()+
+  stat_smooth(method = "lm")
+
+d |> 
+  ggplot(aes(height, weight))+
+  geom_jitter()+
+  stat_smooth(method = "lm")
+```
+
+
+```{r}
+sim_AHW <- 
+  function(age, bHeight, bWeight){
+    N <- length(age)
+    bornHeight <- runif(N,40,60)
+    H <- bornHeight + bHeight[['age']]*age + rnorm(N,3,5)
+    bornWeight <- runif(N, 2, 4)
+    W <- bornWeight + bWeight[['height']]*H + bWeight[['age']]*age + rnorm(N,0,3)
+    data.frame(age,H,W)
+  }
+
+sim_dat <- sim_AHW(runif(100,0,13),
+                   bHeight = list(age = 2), 
+                   bWeight = list(height = .3, age = 1.2))
+sim_dat |> 
+  ggplot(aes(age,W, colour = H))+ #scales::rescale(H, c(.1,1))
+  geom_point()
+```
+
+### 2. Estimate the total causal effect of each year of growth on weight.
+
+```{r}
+sim_dat <- sim_AHW(runif(1e4,0,13),
+                   bHeight = list(age = 2), 
+                   bWeight = list(height = .3, age = 1.2))
+m_AHW <- 
+  alist(
+    W ~ dnorm(mu, sigma),
+    mu <- a + bHeight*H + bAge*age,
+    #priors
+    a ~ dnorm(3,.25),
+    bHeight ~ dunif(0,1),
+    bAge ~ dunif(1,2),
+    sigma ~ dunif(0,5)
+  )
+
+sim_fit <- 
+  quap(m_AHW,data = sim_dat)
+
+precis(sim_fit)
+```
+
+```{r}
+#| error: true
+howell_fit <- 
+  quap(m_AHW,
+       data = list(H = d$height, age = d$age, W = d$weight))
+```
+
+Changing priors:
+```{r}
+m_AHW <- 
+  alist(
+    W ~ dnorm(mu, sigma),
+    mu <- a + bHeight*H + bAge*age,
+    #priors
+    a ~ dnorm(3,.25),
+    bHeight ~ dunif(0,1),
+    bAge ~ dunif(.5,2),
+    sigma ~ dunif(0,5)
+  )
+
+howell_fit <- 
+  quap(m_AHW,
+       data = list(H = d$height, age = d$age, W = d$weight))
+
+precis(howell_fit)
+```
+

@@ -1,88 +1,384 @@
 ---
-title: "Chapter 3 - Sampling the imaginary"
-format: 
-  html:
-    theme: lumen
+title: "Chapter 4 - Geocentric Models"
+format: html
 ---
 
 ```{r}
 #| message: false
+library(tidyverse)
 library(rethinking)
+
+theme_set(theme_bw(16, base_family = "Roboto"))
 ```
 
-Exemplo comum em textos Bayesianos: eficácia de um teste médico. Neste caso, detecção de vampiros (rsrs...).
+
+O experimento mental de coinflips em um campo de futebol. 16 flips, mil participantes. Cálculo da posição final por participante:
+```{r}
+pos <- replicate( 1000 , sum( runif(16,-1,1) ) )
+```
+
+Desnsidade variando com número de flips e se aproximando da Gaussiana:
+```{r}
+flips_exp <- function(flips){
+  tibble(
+    position = replicate( 1000 , sum( runif(flips,-1,1) ) )
+  )
+}
+
+n_flips <- floor(exp(seq(1,10,.5)))
+names(n_flips) <- n_flips
+
+n_flips %>% 
+  purrr::map(flips_exp) %>% 
+  list_rbind(names_to = "flips") %>%
+  mutate(flips = factor(flips, levels = n_flips)) %>% 
+  ggplot(aes(position))+
+  geom_density()+
+  facet_wrap(~flips, scales = "free")
+```
+
+
+## "Owl drawing" worflow
+
+1. Definir uma pergunta clara
+2. Esboçar as suposições causais 
+3. Definir modelo generativo (de amostra) baseado em (2)
+4. Usar 3 para definir um estimador 
+5. Profit? (ou: avaliar resultados)
+
+Talvez, depois do último passo seja necessário voltar para o segundo e repetir o processo com modificações.
+
+## Qual é a inflência da altura sobre o peso em adultos?
 
 ```{r}
-Pr_Positive_Vampire <- 0.95
-Pr_Positive_Mortal <- 0.01
-Pr_Vampire <- 0.001
-Pr_Positive <- Pr_Positive_Vampire * Pr_Vampire +
-Pr_Positive_Mortal * ( 1 - Pr_Vampire )
-( Pr_Vampire_Positive <- Pr_Positive_Vampire*Pr_Vampire / Pr_Positive )
+data("Howell1")
+d <- 
+  Howell1 %>% 
+  filter(age >= 18)
+
+d %>% 
+  ggplot(aes(height, weight))+
+  geom_point()+
+  stat_smooth(method = "lm")
 ```
 
-### Exemplo do globo e proporção de água e terra
+### Suposições causais
+"O peso ocorre em função da altura e de um conjunto de variáveis 'não-observadas'".
 
-Gerando a posterior com mil valores supostos para *p*.
+### Modelo generativo
+
+H = altura
+$\beta$ = proporção de altura em relação a peso 
+U = influências não-observadas
+
+`sd` é o desvio-padrão da gaussiana que define U.
 
 ```{r}
-p_grid <- seq( from=0 , to=1 , length.out=1000 )
-prob_p <- rep( 1 , 1000 )
-prob_data <- dbinom( 6 , size=9 , prob=p_grid )
-posterior <- prob_data * prob_p
-posterior <- posterior / sum(posterior)
+sim_weight <- 
+  function(H,b,sd){
+    U <- rnorm(length(H), 0, sd)
+    W <-  b*H + U
+    W
+  }
 ```
 
-Dez mil amostras da posterior:
+Simular 200 observações com alturas entre 130 e 170cm, beta de .5 e `sd = 5`.
+```{r}
+H <- runif(200, 130, 170)
+W <- sim_weight(H, .5, 5)
+
+tibble(H,W) %>% 
+  ggplot(aes(H, W))+
+  geom_point()+
+  labs(title = "First weight vs height simulated data")
+```
+
+Esse é o momento de checar se o modelo generativo faz sentido. Os resultados estão em uma faixa adequada? Neste caso sim.
+
+### Notação de modelos
+Cada variável é apresentada com a sua origem, seja uma relação entre outras variáveis, seja uma distribuição. Geralmente, a primeira definição é a mais complexa. Por exemplo, nosso modelo acima:
+
+$W_i = \beta H_i + U_i$
+$U_i \sim \text{Normal}(0,\sigma)$
+$H_i \sim \text{Uniforme}(130,170)$
+
+### Definição do estimador
+O estimador vai estimar a média de peso em função altura baseado em uma relação linear:
+
+$$E(W_i|H_i) = \alpha + \beta H_i $$
+
+#### Distribuição posterior
+A probabilidade dos parâmetros intercepto, de beta, da variância da distribuição dadas determinadas observações de altura e peso é dada pelo produto do número de formas possíveis que uma linha específica poderia prever o peso observado dada a altura observada (isso é equivalente ao jardim de dados que se bifurcam dos primeiros capítulos) pela linha posterior prévia (prior). Esse produto é dividido uma constante de normalização (Z).
 
 ```{r}
-samples <- sample(p_grid , prob=posterior , size=1e4 , replace=TRUE)
-plot(samples)
-dens(samples)
+set.seed(93)
+H <- runif(1,130,170)
+W <- sim_weight(H = H, b = .5, sd = 10)
 ```
 
-### Intervals of defined boundaries
+Função para cálculo da posterior:
+```{r}
+compute_logPrW <- 
+  function(W,H,a,b,sigma,prior=1) {
+    mu <- a + b*H
+    sum(dnorm(W,mu,sigma,log=TRUE)) + log(prior)
+  }
 
-Probabilidade posterior da proporção de água ser menor que 50%. Usando a posterior gerada com grid-search:
+compute_post <- function(W,H,a,b,sigma,prior=1){
+  # make table of all combinations of possible a,b,sigma
+  grid <- expand.grid(a=a,b=b,sigma=sigma)
+  
+  # compute probability of each
+  post <- sapply(1:nrow(grid),
+                 function(j) compute_logPrW(W,H,
+                                            grid$a[j],
+                                            grid$b[j],
+                                            grid$sigma[j],
+                                            prior = prior))
+  post <- exp(post - log_sum_exp(post))
+  cbind(grid, post)
+}
+
+```
+
+
+Distribuição posterior para 11 valores de beta via grid approximation:
+```{r}
+beta_seq <- seq(0,1,len = 11)
+post <- compute_post(W, H, a = 0, b = beta_seq, sigma = 10)
+as_tibble(post) %>% 
+  ggplot(aes(b,post))+
+  geom_col()
+```
+
+Contudo, aqui vemos só beta, enquanto a distribuição posterior abriga, na verdade, muitíssimas linhas (definidas por valores de intercepto e beta).
+
+### Aproximação quadrática
+
+A partir de agora, passaremos a usar a aproximação quadrática para definir os modelos e calcular distribuições posteriores. Na verdade, uma aproximação gaussiana multivariada da posterior. A função `quap` do pacote `rethinking` implementa essa aproximação.
+
+O prior também deve ser definido. O que significa definir ranges de valores para os parâmetros na ausência de dados.
+
+ Uma pessoa com zero altura deve ter zero peso, portanto, intercepto de 0 com um "joguinho" de 10 numa gaussiana.
+ Para beta colocamos qualquer valor entre zero e um, todos com a mesma probabilidade (um prior flat). Beta é positivo porque sabemos que, em média, pessoas maiores são mais pesadas. 
+ O mesmo para a variância, mas com um máximo de 10.
 
 ```{r}
-posterior[p_grid < .5] |> sum()
+model_def <- 
+  alist(
+    W ~ dnorm(mu, sigma),
+    mu <-  a + b*H,
+    # as definições abaixo funcionam como prior
+    a ~ dnorm(0,10), 
+    b ~ dunif(0,1),
+    sigma ~ dunif(0,10)
+  )
+
 ```
 
-Usando as amostras:
+Rodar estimativa para 10 pessoas simuladas:
+```{r}
+H <- runif(10,130, 170)
+W <- sim_weight(H,.5,5)
+
+m3.1 <- quap(model_def,data = list(W=W, H=H))
+precis(m3.1)
+```
 
 ```{r}
-length(samples[samples < .5])/ length(samples)
-sum(samples < .5) / length(samples)
+analysis <- 
+  quap(model_def,
+       data = list(H = d$height, W = d$weight))
+
+precis(analysis)
+```
+### Posterior predictive distribution
+```{r}
+pos_pred_dist <- extract.samples(analysis,100)
+
+d %>% 
+  ggplot(aes(height, weight))+
+  geom_abline(aes(intercept = a, slope = b),
+              data = pos_pred_dist,
+              alpha = .3)+
+  geom_point(colour = 'skyblue3',
+             alpha = .7)
+  
+  
 ```
 
-E a probabilidade da proporção de água estar entre 50 e 75% ?
+Simulating observations:
+```{r}
+height_seq <- seq(130,190,len = 50)
+# segundo o help de 'sim' os valores são estimados a partir da média da distribuição posterior
+w_pred <- sim(analysis, data = list(H = height_seq),n = 1e3)
+
+w_pred %>% 
+  as_tibble() %>% 
+  rename_with(~as.character(height_seq)) %>% 
+  mutate(obs = 1:n()) %>% 
+  pivot_longer(-obs,
+               names_to = c(NA,"H"),
+               names_sep = 1, 
+               names_transform = list(H = as.numeric),
+               values_to = "W") %>% 
+  ggplot(aes(H,W))+
+  geom_point(alpha = .5)+
+  labs(title = "Simulated observations from the posterior distribution")
+
+```
+
+
+## Múltiplos estimands (e categorias, e curvas)
+
+Vamos adicionar Sexo como preditor categórico. A primeira coisa é adicionar ele no DAG. Se pensarmos sobre essa variável, vemos que ela deve influenciar tanto altura quanto peso (é um confundidor). É um DAG de mediação, porque Sexo afeta o Peso diretamente; e indiretamente via Altura. Novamente, é útil pensar se uma intervenção na variável que se quer adicionar mudaria outras variáveis. A definição estatística do modelo começa assim:
+
+$$W_i = f_W(S,H) \\
+  H_i = f_H(S) $$
+```{r}
+# S =1 female; S=2 male
+sim_HW <- 
+  function(S,b,a){
+    N <- length(S)
+    # se mulher assumir uma média de 150cm, se homem 160cm
+    H <- ifelse(S==1,150,160) + rnorm(N,0,5)
+    # temos um intercepto para mulher e um pra homem; beta tbm.
+    W <- a[S] + b[S]*H + rnorm(N,0,5)
+    data.frame(S,H,W)
+  }
+
+
+```
 
 ```{r}
-sum(samples >= .5 & samples <= .75 ) / length(samples)
+S <- rbern(100)+1
+dat <- sim_HW(S,b = c(.5,.6), a = c(0,0))
 ```
 
-### Intervalos com uma massa definida (defined mass)
-
-Também conhecido como **intervalo de confiança!** Esses intervalos de probabilidade posterior também são conhecidos como **credible intervals**, mas McElreth prefere a nomenclatura **compatibility intervals**.
-
-Percentil de 80, intervalo de confiança de \[0-80%\]:
+Aqui vamos usar _index variables_ para as varáveis categóricas.
+Também vamos colocar o mesmo prior para ambas as categorias (valores dos parâmetros na simulação).
 
 ```{r}
-quantile(samples, .8)
-```
+S <- rep(1,100)
+simF <- sim_HW(S,b = c(.5,.6), a = c(0,0))
+S <- rep(2,100)
+simM <- sim_HW(S,b = c(.5,.6), a = c(0,0))
 
-80% centrais, **intervalos de percentil (PI, em inglês):**
+cat("Simulated mean effect of Sex:", mean(simM$W-simF$W))
+```
 
 ```{r}
-quantile(samples, c(.1,.9))
-rethinking::PI(samples, prob = .8) # prob é a massa central
+S <- rbern(100)+1
+dat <- sim_HW(S,b = c(.5,.6), a = c(0,0))
+
+m_SW_def <- 
+  alist(
+    W ~ dnorm(mu, sigma),
+    mu <- a[S],
+    a[S] ~ dnorm(60, 10),
+    sigma ~ dunif(0,10)
+  )
+m_SW <- 
+  quap(m_SW_def, data = dat)
+precis(m_SW,depth = 2)
+```
+Aqui ainda estamos estimando o efeito total de Sexo. Nesse caso, estimamos a média a partir do intercepto para cada Sexo e obtemos o valor de W via `dnorm`. O efeito é a diferença da média de peso para cada Sexo, como acima.
+
+Aplicando aos dados reais:
+```{r}
+m_SW_real <- 
+  quap(m_SW_def, 
+       data = list(W = d$weight, S = d$male +1))
+precis(m_SW_real,depth = 2)
+```
+Investigando as distribuições posteriores preditivas para as duas categorias:
+```{r}
+post <- extract.samples(m_SW_real)
+dens(post$a[,1], xlim = c(39, 50), lwd = 3,
+     col = 2, xlab = "posterior mean weight (kg)")
+dens(post$a[,2], lwd = 3, col = 4, add = T)
 ```
 
-Esse tipo de intervalo simétrico (no caso, 10% para cada lado da distribuição) é útil para descrever grande parte das distribuições posteriores. Desde que ela não seja muito assimétrica.
+### Contraste entre distribuições posteriores (causal contrast)
 
-Um alternativa é utilizar o HPDI: **highest posterior density interval**. Esse é o menor intervalo com a densidade desejada, ou seja, onde a maior parte da probabilidade posterior se concentra. *Sempre inclui o valor de parâmetro mais provável.*
+O fato de duas distribuições se sobreporem não deve ser utilizado como critério para afirmar que são semelhantes ou distintas! Sempre é preciso calcular a distribuição do contraste.
 
 ```{r}
-HPDI(samples, .5)
+mu_contrast <- post$a[,2] - post$a[,1]
+dens(mu_contrast, xlim = c(3,10), lwd =3,
+     col = 1, xlab = "posterior mean weight contrast (kg)", main = "contrast male - female")
 ```
+
+Contraste entre peso posterior por sexo.
+
+```{r}
+# posterior weight distributions
+W1 <- rnorm(1e4, post$a[,1],post$sigma)
+W2 <- rnorm(1e4, post$a[,2],post$sigma)
+
+#contrast
+W_contrast <- W2-W1
+dens(W_contrast, xlim = c(-25,35), lwd = 3, col =1,
+     xlab = "posterior weight contrast (kg)",
+     main = "Homem - Mulher")
+
+cat("proportion men > woman:", sum(W_contrast > 0)/ length(W_contrast),"\n")
+cat("proportion women > man:", sum(W_contrast < 0)/ length(W_contrast))
+```
+
+### Efeito direto de Sexo no Peso
+
+Para estimar, precisamos "bloquear" o efeito de Altura sobre Peso, para sobrar somente o efeito de Sexo.
+Modelo linear com a altura centrada.
+Centrar variáveis em geral ajuda a definir prior para o intercepto.
+
+Ao centrar Altura fazemos com que o intercepto seja o peso médio de uma pessoa com altura média.
+
+É só estratitifcar por Sexo tanto o intercepto quanto a inclinação.
+
+```{r}
+m_SW_direct_def <- 
+  alist(
+    # outcome
+    W ~ dnorm(mu, sigma),
+    # vars
+    mu <- a[S] + b[S]*(H-Hbar), # line with centered height
+    # dosen't work
+    #H <- H - mean(H),
+    # priors
+    a[S] ~ dnorm(60, 10),
+    b[S] ~ dunif(0,1),
+    sigma ~ dunif(0,10)
+  )
+
+
+```
+
+#### Fazer teste com valores sintéticos
+
+Analisando os dados:
+```{r}
+m_SW_direct_real <- 
+  quap(m_SW_direct_def,
+     data = list(H = d$height,
+                 W = d$weight,
+                 S = d$male+1,
+                 Hbar = mean(d$height)))
+
+precis()
+```
+
+
+
+## Curvas com splines
+
+Splines são modelos lineares com algumas variáveis sintéticas e pesos para diferentes curvas (basis functions, actually).
+
+Exemplo de Idade e Altura:
+
+```{r}
+
+```
+
+
+

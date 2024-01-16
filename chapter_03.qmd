@@ -1,0 +1,88 @@
+---
+title: "Chapter 3 - Sampling the imaginary"
+format: 
+  html:
+    theme: lumen
+---
+
+```{r}
+#| message: false
+library(rethinking)
+```
+
+Exemplo comum em textos Bayesianos: eficácia de um teste médico. Neste caso, detecção de vampiros (rsrs...).
+
+```{r}
+Pr_Positive_Vampire <- 0.95
+Pr_Positive_Mortal <- 0.01
+Pr_Vampire <- 0.001
+Pr_Positive <- Pr_Positive_Vampire * Pr_Vampire +
+Pr_Positive_Mortal * ( 1 - Pr_Vampire )
+( Pr_Vampire_Positive <- Pr_Positive_Vampire*Pr_Vampire / Pr_Positive )
+```
+
+### Exemplo do globo e proporção de água e terra
+
+Gerando a posterior com mil valores supostos para *p*.
+
+```{r}
+p_grid <- seq( from=0 , to=1 , length.out=1000 )
+prob_p <- rep( 1 , 1000 )
+prob_data <- dbinom( 6 , size=9 , prob=p_grid )
+posterior <- prob_data * prob_p
+posterior <- posterior / sum(posterior)
+```
+
+Dez mil amostras da posterior:
+
+```{r}
+samples <- sample(p_grid , prob=posterior , size=1e4 , replace=TRUE)
+plot(samples)
+dens(samples)
+```
+
+### Intervals of defined boundaries
+
+Probabilidade posterior da proporção de água ser menor que 50%. Usando a posterior gerada com grid-search:
+
+```{r}
+posterior[p_grid < .5] |> sum()
+```
+
+Usando as amostras:
+
+```{r}
+length(samples[samples < .5])/ length(samples)
+sum(samples < .5) / length(samples)
+```
+
+E a probabilidade da proporção de água estar entre 50 e 75% ?
+
+```{r}
+sum(samples >= .5 & samples <= .75 ) / length(samples)
+```
+
+### Intervalos com uma massa definida (defined mass)
+
+Também conhecido como **intervalo de confiança!** Esses intervalos de probabilidade posterior também são conhecidos como **credible intervals**, mas McElreth prefere a nomenclatura **compatibility intervals**.
+
+Percentil de 80, intervalo de confiança de \[0-80%\]:
+
+```{r}
+quantile(samples, .8)
+```
+
+80% centrais, **intervalos de percentil (PI, em inglês):**
+
+```{r}
+quantile(samples, c(.1,.9))
+rethinking::PI(samples, prob = .8) # prob é a massa central
+```
+
+Esse tipo de intervalo simétrico (no caso, 10% para cada lado da distribuição) é útil para descrever grande parte das distribuições posteriores. Desde que ela não seja muito assimétrica.
+
+Um alternativa é utilizar o HPDI: **highest posterior density interval**. Esse é o menor intervalo com a densidade desejada, ou seja, onde a maior parte da probabilidade posterior se concentra. *Sempre inclui o valor de parâmetro mais provável.*
+
+```{r}
+HPDI(samples, .5)
+```

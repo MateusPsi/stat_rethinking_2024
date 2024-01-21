@@ -1,0 +1,51 @@
+---
+title: "Homework - week 3"
+author: "Mateus Silvestrin"
+format: 
+  pdf:
+    documentclass: scrreprt
+    mainfont: "Liberation Serif"
+---
+
+```{r}
+#| message: false
+library(data.table)
+library(ggplot2)
+library(dagitty)
+library(rethinking)
+
+data("foxes")
+setDT(foxes)
+theme_set(theme_bw(14))
+```
+
+```{r}
+foxes |> 
+  melt("group") |> 
+  ggplot(aes(value))+
+  geom_histogram()+
+  facet_grid(variable~.)
+```
+
+Standardizing variables.
+```{r}
+foxes_std <- foxes
+foxes_std[, 2:5 := lapply(.SD, standardize), .SDcols= -"group"]
+```
+
+
+## 1. 
+```{r}
+sim_AF <- 
+  function(A, bA){
+    N <- length(A)
+    Fd <- rnorm(N, bA*A, .5)
+    data.table(A,Fd)
+  }
+
+sim_AF(A = runif(1e2,-2,2), bA = 1) |> 
+  ggplot(aes(A, Fd))+
+  geom_point()
+```
+
+

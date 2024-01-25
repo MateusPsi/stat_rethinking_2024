@@ -18,9 +18,13 @@ theme_set(theme_bw(14))
 ```
 
 
-### 1.  From the Howell1 dataset, consider only the people younger than 13 years old. Estimate the causal association between age and weight. Assume that age influences weight through two paths. First, age influences height, and height influences weight. Second, age directly influences weight through age-related changes in muscle growth and body proportions. Draw the DAG that represents these causal relationships. And then write a generative simulation that takes age as an input and simulates height and weight, obeying the relationships in the DAG.
+## 1.  From the Howell1 dataset, consider only the people younger than 13 years old. Estimate the causal association between age and weight. Assume that age influences weight through two paths. First, age influences height, and height influences weight. Second, age directly influences weight through age-related changes in muscle growth and body proportions. Draw the DAG that represents these causal relationships. And then write a generative simulation that takes age as an input and simulates height and weight, obeying the relationships in the DAG.
+
+I drew the DAG in the Daggity website and used the model code to plot it here:
 
 ```{r}
+#| fig-width: 4
+#| fig-height: 2
 dag_syntax <- '
   dag {
     Age [exposure,pos="-2.200,1.597"]
@@ -36,6 +40,7 @@ dagitty(dag_syntax) |>
   plot()
 ```
 
+### Taking a look at the data
 
 ```{r}
 data("Howell1")
@@ -58,6 +63,11 @@ d |>
   stat_smooth(method = "lm")
 ```
 
+### Simulation 
+
+The simulation has `bornHeight` and `bornWeight` as intercepts of linear models for Height and Weight. The intercepts are taken from an uniform distribution based on sensible values for newborns ([Health Encyclopedia of the University of Rochester](https://www.urmc.rochester.edu/encyclopedia/content.aspx?contenttypeid=90&contentid=P02673)). The random variations (error terms) are tuned-down values from the adult's simulation.
+
+The values shown are the result of some trial-and-error to get resonable relationships among the variables.
 
 ```{r}
 sim_AHW <- 
@@ -74,11 +84,12 @@ sim_dat <- sim_AHW(runif(100,0,13),
                    bHeight = list(age = 2), 
                    bWeight = list(height = .3, age = 1.2))
 sim_dat |> 
-  ggplot(aes(age,W, colour = H))+ #scales::rescale(H, c(.1,1))
-  geom_point()
+  ggplot(aes(age,W, colour = H))+
+  geom_point()+
+  labs(subtitle = "Simulated dataset of weight, height and age")
 ```
 
-### 2. Estimate the total causal effect of each year of growth on weight.
+## 2. Estimate the total causal effect of each year of growth on weight.
 
 ```{r}
 sim_dat <- sim_AHW(runif(1e4,0,13),
@@ -108,7 +119,7 @@ howell_fit <-
        data = list(H = d$height, age = d$age, W = d$weight))
 ```
 
-Changing priors:
+Changing age prior to be less restrictive:
 ```{r}
 m_AHW <- 
   alist(
@@ -126,5 +137,32 @@ howell_fit <-
        data = list(H = d$height, age = d$age, W = d$weight))
 
 precis(howell_fit)
+
+res <- precis(howell_fit)
+```
+
+The total effect of Age on Weight has mean `r round(res$mean[3],2)`.
+
+## Correção
+Para estimar o efeito total de Idade, o modelo não deve incluir altura!
+
+```{r}
+m_AHW <- 
+  alist(
+    W ~ dnorm(mu, sigma),
+    mu <- a +  bAge*age,
+    #priors
+    a ~ dnorm(3,.25),
+    bAge ~ dunif(.5,2),
+    sigma ~ dunif(0,5)
+  )
+
+howell_fit <- 
+  quap(m_AHW,
+       data = list(age = d$age, W = d$weight))
+
+precis(howell_fit)
+
+res <- precis(howell_fit)
 ```
 

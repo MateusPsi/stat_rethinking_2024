@@ -43,9 +43,138 @@ sim_AF <-
     data.table(A,Fd)
   }
 
-sim_AF(A = runif(1e2,-2,2), bA = 1) |> 
+sim_AF(A = runif(1e2,-2,2), bA = .5) |> 
   ggplot(aes(A, Fd))+
   geom_point()
 ```
 
+```{r}
+m_AF <- 
+  alist(
+    Fd <- dnorm(mu, sigma),
+    mu <- bA*A,
+    # priors
+    bA ~ dunif(0,2),
+    sigma ~ dunif(0,2)
+)
+
+fit_AF <- 
+  quap(m_AF,data = list(A = foxes_std$area,
+                        Fd = foxes_std$avgfood))
+
+precis(fit_AF)
+```
+
+```{r}
+post_AF <- extract.samples(fit_AF)
+
+post_AF |> 
+  ggplot(aes(bA))+
+  geom_density(fill = "darkslategray2", alpha = .5)+
+  scale_y_continuous(breaks = seq(0,10,2),limits = c(0,10),
+                     expand = expansion(c(.01,.05)))+
+  labs(x = "Effect of Area on Food (standardized)",
+       subtitle = "Posterior distribution")
+```
+
+Increasing Area leads to more Food.
+
+## 2. Intervention to estimate total causal effect of F on W. It implies a DAG where area does not exist.
+
+```{r}
+m_FGW <- 
+  alist(
+    # F -> W <- G
+    W <- dnorm(mu, sigma),
+    mu <- bFd*Fd + bG*G,
+    # priors
+    bFd ~ dunif(0,4),
+    bG ~ dunif(-4,0), # the bigger the group, lesser the weight
+    sigma ~ dunif(0,2),
+    
+    # F -> G
+    G <- dnorm(g_mu, g_sigma),
+    g_mu <- g_bFd*Fd,
+    # priors
+    g_bFd ~ dunif(0,4), # more food, more foxes
+    g_sigma ~ dunif(0,2)
+)
+
+fit_FGW <- 
+  quap(m_FGW,data = list(W = foxes_std$weight,
+                        Fd = foxes_std$avgfood,
+                        G = foxes_std$groupsize))
+```
+
+```{r}
+post_FGW <- extract.samples(fit_FGW)
+
+post_FGW |> 
+  ggplot(aes(bFd))+
+  geom_density(fill = "darkslategray2", alpha = .5)+
+  scale_y_continuous(breaks = seq(0,2,.5),limits = c(0,2),
+                     expand = expansion(c(.01,.05)))+
+  labs(x = "Total effect of Food on Weight (standardized)",
+       subtitle = "Posterior distribution")
+```
+
+Now, the intervention.
+
+```{r}
+Fd_seq <- data.table(Fd = seq(-2,2,.25))
+sim_FGW <- sim(fit_FGW, data = Fd_seq, vars = c("G","W"))
+```
+
+```{r}
+sim_FGW <- 
+  sim_FGW |>
+  lapply(as.data.table) |> 
+  rbindlist(idcol = "counterfactual") |> 
+  setnames(paste0("V",1:17), as.character(Fd_seq$Fd)) 
+sim_FGW <-  
+  sim_FGW |> 
+  melt("counterfactual", variable.name = "Food", variable.factor = F)
+
+sim_FGW[,Food := as.numeric(Food)]
+
+sim_FGW[,
+        .(M = mean(value),
+          ymin = PI(value)[1],
+          ymax = PI(value)[2]),
+        by = .(counterfactual, Food)]|> 
+  ggplot(aes(Food, ymin = ymin, ymax = ymax))+
+  geom_ribbon(alpha = .4)+
+  geom_line(aes(y = M))+
+  facet_wrap(counterfactual~.)
+```
+
+```{r}
+m_FW <- 
+  alist(
+    # F -> W <- G
+    W <- dnorm(mu, sigma),
+    mu <- bFd*Fd + bG*G,
+    # priors
+    bFd ~ dunif(0,4),
+    bG ~ dunif(-4,0), # the bigger the group, lesser the weight
+    sigma ~ dunif(0,2)
+)
+
+fit_FW <- 
+  quap(m_FW,data = list(W = foxes_std$weight,
+                        Fd = foxes_std$avgfood,
+                        G = foxes_std$groupsize))
+```
+
+```{r}
+post_FW <- extract.samples(fit_FW)
+
+post_FW |> 
+  ggplot(aes(bFd))+
+  geom_density(fill = "darkslategray2", alpha = .5)+
+  scale_y_continuous(breaks = seq(0,2,.5),limits = c(0,2),
+                     expand = expansion(c(.01,.05)))+
+  labs(x = "Direct effect of Food on Weight (standardized)",
+       subtitle = "Posterior distribution")
+```
 

@@ -1,0 +1,60 @@
+---
+title: "Lecture 12 - Multilevel models"
+subtitle: "Hooray!"
+format: html
+---
+
+```{r}
+library(tidyverse)
+library(rethinking)
+```
+
+```{r}
+data("Trolley")
+```
+
+Trolley data modelada com Ordered Logit na Lecture 11.
+
+"Um modelo com múltiplos níveis é um 'modelo com memória'". Eles aprendem melhor e mais rápido, eles também são mais resistentes a overfitting. É uma espécie de regularização automática pois faz uma espécie de Partial Pooling.
+
+Exemplo com um modelo do tempo de espera em Starbucks'. 
+É como se a cada observação uma posterior populacional e uma posterior para cada grupo fosse atualizada (todas simultaneamente! São todas dependentes, o ordem das observações não importa).
+
+Exemplo com Reedfrogs e seus filhotes, a variável dependente é sobrevivência e há diferentes "tanques" com diferentes tratamentos. Tamque é o fator aletório.
+```{r}
+data("reedfrogs")
+d <- reedfrogs
+str(d)
+
+```
+
+Em um modelo multinível, a variabilidade dos estimadores (sigma) também é um parâmetro a ser estimado, e mais, ele pode ser otimizado via validação cruzada.
+Contudo, isso não é necessário. Pode ser aprendiddo direto dos dados também, que é o mais padrão de ser feito. 
+
+
+```{r}
+d$tank <- 1:nrow(d)
+dat <- list(S = d$surv, D = d$density, T= d$tank)
+
+mST <- 
+  ulam(
+    alist(
+      S~ dbinom(D,p),
+      logit(p) <- a[T],
+      a[T] ~ dnorm(a_bar, sigma), # por tanque
+      a_bar ~ dnorm(0, 1.5), # população
+      sigma ~ dexp(1)
+    ),
+    data = dat, chains = 4, cores = 4,
+    log_lik = T
+  )
+
+
+```
+
+
+### Superstições sobre modelos multinível
+
+1. Clusters tem que ser obtidos aletoriamente
+2. O número de clusters tem que ser grande
+3. Os modelos assumen variabilide normalmente distribuida

@@ -1,0 +1,132 @@
+---
+title: "Homework - week 3"
+author: "Mateus Silvestrin"
+format: 
+  pdf:
+    documentclass: scrreprt
+    mainfont: "FreeSerif"
+    code-block-bg: true
+---
+
+```{r}
+#| message: false
+library(data.table)
+library(ggplot2)
+library(dagitty)
+library(rethinking)
+
+data("NWOGrants")
+setDT(NWOGrants)
+theme_set(theme_bw(14))
+gda <- list()
+```
+
+```{r}
+dag_descrip <- '
+dag {
+award [outcome,pos="-0.025,-0.344"]
+discipline [pos="-0.495,-0.698"]
+gender [exposure,pos="-0.887,-0.355"]
+discipline -> award
+gender -> award
+gender -> discipline
+}
+'
+plot(dagitty(dag_descrip))
+
+
+```
+
+
+```{r}
+gda$total$syntax <- 
+  alist(
+    awards ~ dbinom(applications, p),
+    logit(p) <- a[gender],
+    a[gender] ~ dnorm(0 , 1.5)
+  )
+
+gda$total$fit <- 
+  ulam(gda$total$syntax,
+       data = NWOGrants[,.(gender = as.numeric(gender),applications,awards)],
+       chains = 4, cores = 4)
+
+```
+
+```{r}
+gda$total$post <- 
+  extract.samples(gda$total$fit)  
+gda$total$post <- apply(gda$total$post$a,2,inv_logit)
+```
+
+```{r}
+dens(gda$total$post[,1], xlim = c(.12, .21), ylim = c(0,50))
+dens(gda$total$post[,2],add = T, col = 2)
+```
+
+```{r}
+gda$total$two_vs_one <- gda$total$post[,2]-gda$total$post[,1]
+dens(gda$total$two_vs_one, col = 6)
+```
+
+
+```{r}
+gda$direct_biased$syntax <- 
+  alist(
+    awards ~ dbinom(applications, p_awards),
+    logit(p_awards) <- a[gender, discipline],
+    matrix[gender,discipline]:a ~ dnorm(0,1.5)
+  )
+
+gda$direct_biased$fit <-
+  ulam(gda$direct_biased$syntax,
+       data = NWOGrants,
+       chains = 4, cores = 4)
+```
+
+```{r}
+gda$direct_biased$post <- extract.samples(gda$direct_biased$fit)
+post_a <- inv_logit(gda$direct_biased$post$a)
+contr_men_women <- sapply(1:9, \(x) post_a[,1,x] - post_a[,2,x])
+
+plot(NULL, xlim = c(-.3,.3), ylim = c(0,20),
+     xlab = "Discrimination against women (prob)",
+       ylab = "Density")
+for (i in 1:9) {
+  dens(contr_men_women[,i], lwd =4, col = i+1,
+       add = T)
+  }
+```
+
+```{r}
+NWOGrants[, total_applications := sum(applications)]
+NWOGrants[, bA := rep(c(1,0),9)] # eficácia importa para mulheres em todas as  disc
+
+gda$direct_sensitivity$syntax <- 
+  alist(
+    awards ~ dbinom(applications, p_awards),
+    logit(p_awards) <- a[gender, discipline],
+    matrix[gender,discipline]:a ~ dnorm(0,1.5),
+    
+    applications ~ dbinom(total_applications, pA),
+    logit(pA) <- aA[gender] + bA[gender]*u[i], 
+    aA[gender] ~ normal(0,1), # como gender é observado, podemos estimar aA com prior normalmente
+   
+    vector[2823]:u ~ normal(0,1)
+  )
+
+gda$direct_sensitivity$fit <- 
+  ulam(gda$direct_sensitivity$syntax,
+       data = NWOGrants,
+       chains = 4, cores = 4)
+```
+
+
+```{r}
+gda$direct_unbiased$post <- extract.samples(gda$direct_unbiased$fit)
+```
+
+```{r}
+traceplot(gda$direct_sensitivity$fit)
+```
+

@@ -1,0 +1,87 @@
+---
+title: "Sandbox"
+format: html
+---
+
+
+```{r}
+library(tidyverse)
+library(ggrain)
+library(rethinking)
+
+theme_set(theme_bw(16, "Roboto"))
+```
+
+## Simulação um teste-t para amostras pareadas
+
+Modelo generativo:
+```{r}
+n <- 1e3
+before <- rnorm(n+1, sd = 1.5)
+after <- rnorm(n+1, before+runif(n,.5,1))
+
+tibble(before = before, after = after) |> 
+  mutate(id = 1:n()) |> 
+  pivot_longer(-id,names_to = "Stage") |> 
+  ggplot(aes("",y = value, fill = Stage))+
+  geom_rain(alpha = .5)
+
+
+```
+
+```{r}
+t_regression <- list()
+t_regression$syntax <- 
+  alist(
+    before ~ dnorm(mu_before, sigma_before),
+    mu_before <- a_before,
+    after ~ dnorm(mu_after, sigma_after),
+    mu_after <- a_after,
+    
+    #priors
+    c(a_before, a_after) ~ dunif(-1,1),
+    c(sigma_before, sigma_after) ~ dexp(1)
+  
+  )
+
+t_regression$fit <- 
+  ulam(t_regression$syntax,
+       list(before = before, after = after),
+       chains = 3, cores = 3,iter = 300)
+```
+
+```{r}
+precis(t_regression$fit, pars = c("a_before","a_after"))
+```
+
+
+```{r}
+post <- extract.samples(t_regression$fit)
+dens(post$a_before, xlim = c(-.2,1))
+dens(post$a_after, col = 4,add=T)
+```
+
+```{r}
+t_regression$contrast <- post$a_after - post$a_before
+
+dens(t_regression$contrast, col = 2)
+```
+
+```{r}
+linked <- link(t_regression$fit)
+#simulated <- sim(t_regression$fit) # why dosen't this work ?
+tibble(obs = c(before, after), pred = linked$mu_before) |> 
+  mutate(stage = rep(c("before","after"),each = 1000)) |> 
+  ggplot(aes(obs, pred, color = stage))+
+  geom_point()+
+  stat_smooth(metho = "lm")
+```
+
+
+## Modelando os dados de silogismo
+
+```{r}
+sylogism <- afex::ks2013.3
+```
+
+

@@ -39,9 +39,13 @@ dat <- list(S = d$surv, D = d$density, T= d$tank)
 mST <- 
   ulam(
     alist(
+      ## nível 1
       S~ dbinom(D,p),
       logit(p) <- a[T],
-      a[T] ~ dnorm(a_bar, sigma), # por tanque
+      ## nivel "misto" 
+      a[T] ~ dnorm(a_bar, sigma), # por tanque; é prior para o nível 1 e 
+                                  # desfecho para o nível 2
+      # nível 2
       a_bar ~ dnorm(0, 1.5), # população
       sigma ~ dexp(1)
     ),
@@ -58,3 +62,46 @@ mST <-
 1. Clusters tem que ser obtidos aletoriamente
 2. O número de clusters tem que ser grande
 3. Os modelos assumen variabilide normalmente distribuida
+
+## Simulação de modelo multinível
+
+Logoas (ponds) ao invés de tanques, utilizando como preditor apenas a densidade de girinos.
+
+```{r}
+a_bar <- 1.4 # efeito fixo (intercepto)
+sigma <- 1.5 # variancia entre lagoas
+nponds <- 60
+Ni <- as.integer(rep(seq(5,35,10), each = 15)) # densidade em cada lagoa
+
+a_pond <- rnorm(nponds, a_bar, sigma) # interceptos por lagoa
+
+dsim <- data.frame(pond = 1:nponds, Ni = Ni, true_a = a_pond)
+dsim$Si <- rbinom(nponds, dsim$Ni, prob = logistic(dsim$true_a))
+```
+
+```{r}
+dsim$Si <- rbinom(nponds, dsim$Ni, prob = logistic(dsim$true_a))
+```
+
+### No-pooling
+Estimativa totalmente independente, resume-se à proporção de sobreviventes em cada lagoa.
+```{r}
+dsim$p_npool <- dsim$Si/dsim$Ni
+```
+
+
+### Partial-pooling
+Estima um intercepto por lagoa
+```{r}
+m13.3 <- 
+  ulam(
+    alist(
+      Si ~ dbinom(Ni, p),
+      logit(p) <- a_pond[pond],
+      a_pond[pond] ~ dnorm(a_bar, sigma)
+      a_bar ~ dnorm(0, 1.5),
+      
+    )
+  )
+```
+

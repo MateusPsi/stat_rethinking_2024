@@ -1,0 +1,38 @@
+---
+title: "Homework - week 6"
+author: "Mateus Silvestrin"
+format: 
+  pdf:
+    documentclass: scrreprt
+    mainfont: "FreeSerif"
+    code-block-bg: true
+---
+
+```{r}
+#| message: false
+library(data.table)
+library(ggplot2)
+library(dagitty)
+library(rethinking)
+
+data("reedfrogs")
+setDT(reedfrogs)
+theme_set(theme_bw(14))
+```
+
+```{r}
+sigma_vals <- c(.1,1,5,10)
+names(sigma_vals) <- as.character(sigma_vals)
+prior_sim <- lapply(sigma_vals,
+                    \(x) data.table(value = rexp(1e4,x))) |>
+              rbindlist(idcol = "sigma")
+prior_sim[, a_bar := rnorm(.N), by = sigma]
+prior_sim[, a_j := rnorm(.N, a_bar, as.numeric(sigma))]
+prior_sim[, p_j := inv_logit(logistic(a_j))]
+
+prior_sim |> 
+  ggplot(aes(p_j, colour = sigma))+
+  geom_density()
+
+```
+

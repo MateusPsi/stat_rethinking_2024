@@ -1,0 +1,92 @@
+---
+title: "Chapter 06 - Back-door criterion and Good and Bad Controls"
+format: html
+---
+
+```{r}
+library(tidyverse)
+library(rethinking)
+library(dagitty)
+
+theme_set(theme_bw(14))
+```
+
+
+Usando lógica para determinar as implicações de um modelo causal.
+
+DAG do efeito de X sobre Y com um confundidor Z. Idealmente, randomizando o tratamento X, resolvemos o confundidor. Porém, nem sempre isso é possível, e é aí que utilizamos o operador $do(X)$ para simular a randomização de X via uma intervenção sobre X.
+
+> "Os valores de Y dada uma intervenção sobre X são a distribuição de Y, estratificada por X e U, averaged over a distribuição de U". É uma marginalização pelos efeitos dos confundidores.
+
+Exemplo dos babuínos, antílopes e chetaas.
+
+## Backdoor criterion
+
+Regra para encontrar as variáves que precisam ser controladas para obtermos $do(X)$ (ou qualquer outra variável).
+
+1. Encontrar caminhos que ligam tratamento e desfecho
+2. Caminhos com setas chegando em X e que levam a uma seta que chega em Y (independente da direção da seta no meio do caminho) são caminhos de porta dos fundos
+3. Encontrar variáveis que, se controladas, fecham todos os caminhos de porta dos fundos
+
+```{r}
+N <- 200
+b_XY <- 0 # verdadeiro efeito de X em Y
+b_UY <- -1
+b_UZ <- -1
+b_ZX <- 1
+
+set.seed(10)
+U <- rbern(N)
+Z <- rnorm(N, b_UZ*U)
+X <- rnorm(N, b_ZX*Z)
+Y <- rnorm(N, b_XY*X+b_UY*U)
+d <- list(Y = Y, X = X, Z=Z)
+```
+
+```{r}
+# ignore U,Z
+m_YX <- 
+  quap(
+    alist(
+      Y ~ dnorm(mu, sigma),
+      mu <- a + b_XY*X,
+      a ~ dnorm(0,1),
+      b_XY ~ dnorm(0,1),
+      sigma ~ dexp(1)
+    ),
+    data = d
+  )
+
+# stratify by Z
+m_YXZ <- 
+  quap(
+    alist(
+      Y ~ dnorm(mu, sigma),
+      mu <- a + b_XY*X + b_Z*Z,
+      a ~ dnorm(0,1),
+      c(b_XY, b_Z) ~ dnorm(0,1),
+      sigma ~ dexp(1)
+    ),
+    data = d
+  )
+
+post <- extract.samples(m_YX)
+post2 <- extract.samples(m_YXZ)
+dens(post$b_XY, lwd = 3, col = 1,
+     xlab = "posterior b_XY", xlim = c(-.3,.3))
+dens(post2$b_XY, lwd = 3, col = 3, add = T)
+```
+
+> Variáveis adicionada ao modelo como forma de controle de confundidores geralmente resulta em coeficientes sem sentido, não-interpretáveis!
+
+Por exemplo o valor de `b_Z` abaixo:
+```{r}
+precis(m_YXZ)
+```
+
+O conjunto de ajuste mínimo, encontrado pelo critério da porta dos fundos não é necessariamente o melhor estatisticamente, pode haver uma alternativa com mais variáveis ou com alguma substituição.
+
+> São relativamente poucas a perguntas causais de pesquisa que podem ser respondidas com uma única regressão múltipla. É muito mais comum que seja necessário mais de uma regressão.
+
+Selection on the outcome (or stratifying by outcome) is one of the worst things you can do to causal inference. Reduz a variabilidade que a causa poderia explicar do desfecho. 
+

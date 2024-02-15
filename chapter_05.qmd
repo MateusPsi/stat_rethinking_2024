@@ -1,0 +1,152 @@
+---
+title: "Chapter 5 - Elemental Confounds"
+format: html
+---
+
+```{r}
+library(tidyverse)
+library(rethinking)
+library(dagitty)
+```
+
+
+----- Começando de metade do vídeo
+## Waffle House e divórcios
+
+### Prior predictive simulation
+```{r}
+n <- 20
+a <- rnorm(n,0,.2)
+bM <- rnorm(n,0,.5)
+bA <- rnorm(n,0,.5)
+plot(NULL, xlim = c(-2,2), ylim = c(-2,2),
+     xlab = "Median age of marriage",
+     ylab = "Divorce rate")
+Aseq <- seq(-3,3, len = 30)
+add_line <- function(i){
+  mu <- a[i] + bA[i]*Aseq
+  lines(Aseq, mu, lwd = 2, col =2)
+}
+walk(1:n, add_line)
+```
+
+### Model
+```{r}
+data("WaffleDivorce")
+dat <- list(D = standardize(WaffleDivorce$Divorce),
+         M = standardize(WaffleDivorce$Marriage),
+         A = standardize(WaffleDivorce$MedianAgeMarriage)
+         )
+
+syntax_DMA <- 
+  alist(
+    D ~ dnorm(mu, sigma),
+    mu <- a +bM*M + bA*A,
+    a ~ dnorm(0,.2),
+    bM ~ dnorm(0,.5),
+    bA ~ dnorm(0,.5),
+    sigma ~ dexp(1)
+    )
+
+m_DMA <- quap(syntax_DMA, data = dat)
+```
+
+```{r}
+plot(precis(m_DMA))
+```
+
+O slope não é o efeito causal (exceto em modelos muito simples)! 
+O valor cruzar zero __não significa que o valor é zero ou "não significativo"__.
+
+## Simulating interventions
+
+O efeito causal é encontrado simulando uma intervenção sobre M com operador $do()$. É equivalente a remover todas as setas que chegam em M. O valor de M é definido pelo pesquisador na simulação, não depende de nenhuma outra variável.
+
+
+```{r}
+post <- extract.samples(m_DMA)
+
+# sample A from data
+n <- 1e3
+As <- sample(dat$A, size = n, replace = T)
+
+# simulate D
+DM0 <- rnorm(n, post$a + post$bM*0 + post$bA*As, post$sigma)
+
+# simulate D for M=1 (+1 std dev)
+# use the *same* A values
+DM1 <- rnorm(n, post$a + post$bM*1 + post$bA*As, post$sigma)
+
+# contrast
+M10_contrast <- DM1 - DM0
+dens(M10_contrast, lwd = 4, col = 2,
+     xlab = "Effect of 1sd increase in M on D")
+```
+
+## Pipe (mediação)
+
+Para investigar o efeito causal de A sobre D precisamos entender como mediação funciona.
+
+$$ X \rightarrow Z \rightarrow Y $$
+### Pipe discreto
+```{r}
+n <-  1e3
+X <- rbern(n,.5)
+Z <- rbern(n, (1-X)*.1 + X*.9)
+Y <- rbern(n, (1-Z)*.1 + Z*.9)
+
+cor(X,Y)
+cor(X[Z==0], Y[Z==0])
+cor(X[Z==1], Y[Z==1])
+```
+ 
+Z conhece tudo que existe entre X e Y. Tudo que Y sabe a respeito de X, Z também sabe.
+
+Exemplo de crescimento de experimento de plantas tratadas e não-tratadas com antifúngico.
+
+```{r}
+fungus_dag <- 
+  'dag {
+F [pos="-1.059,0.406"]
+H1 [pos="1.400,-1.460"]
+H2 [outcome,pos="-0.079,-0.221"]
+T [exposure,pos="-1.653,-0.375"]
+F -> H2
+H1 -> H2
+T -> F
+T -> H2
+}
+'
+plot(dagitty(fungus_dag))
+```
+
+Estratificar for nível de Fungo removeria completamente o efeito que se quer investigar, que é o de aumento de altura pela eliminação de fungo. Então o medelo do efeito total de T é o que queremos, e ele não inclui F no estimador!
+
+"Now the impact of treatment is clearly positive, as it should be. It makes sense to control
+for pre-treatment differences, like the initial height h0, that might mask the causal influence
+of treatment. But including post-treatment variables can actually mask the treatment itself.
+This doesn’t mean you don’t want the model that includes both treatment and fungus. The
+fact that including fungus zeros the coefficient for treatment suggests that the treatment
+works for exactly the anticipated reasons. It tells us about mechanism. But a correct inference
+about the treatment still depends upon omitting the post-treatment variable."
+
+Post-treatment bias: "How conditioning on postreatment variables can ruin your experiment and what to do about it". Em geral, incluir variáveis afetadas pelo tratamento gera viés.
+
+## Collider
+
+$$X \rightarrow Z \leftarrow Y$$
+
+X e Y são independentes na amostra como um todo, mas dependentes quando estratificamos por Z.
+Um efeito de colisor pode surgir por um viés de seleção. Em outros termos, com uma amostra enviesada, podemos ver relações que não são verdadeiras na população em geral.
+
+## Descendente
+
+"Filho" de uma variável. Deve ser tratada de acordo com a variável a que está ligada. No exemplo abaixo, A não deve ser controlada, pois perderíamos parte da informação de Z.
+
+$$ X \rightarrow Z \rightarrow Y \\
+  \downarrow \\
+  A$$
+  
+  
+
+

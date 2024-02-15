@@ -1,0 +1,180 @@
+---
+title: "Lecture 10 - Hidden Confounds"
+subtitle: "Counts and sensitivity analysis"
+format: html
+---
+
+```{r}
+library(tidyverse)
+library(rethinking)
+```
+
+
+```{r}
+data("UCBadmit")
+
+cols <- c("D","G","A","reject","N")
+d <- 
+  UCBadmit |> 
+  rename_with(~cols) |> 
+  mutate(G = as.numeric(G),
+         D = as.integer(D)) |> 
+  select(-reject)
+```
+
+Voltando ao dataset de UC Berkley, vamos considerar a (muito provável!) existência de um fator de consfusão que é a Habilidade do candidato. Ao mesmo tempo, vamos supor que a Habilidade enviesa a escolha do candidato de aplicar para um determinado departamento ou outro.
+
+## Generative Model
+```{r}
+set.seed(12)
+N <- 2000
+# gender
+G <- sample(1:2, size = N, replace = T)
+# ability: 1=high, 0 = average
+u <- rbern(N,.1)
+# gender 1 - department 1, 2-2
+D <- rbern(N, ifelse(G==1, u*1, .75)) + 1
+# [dept, gender]
+p_u0 <- matrix(c(.1,.1,.1,.3), nrow = 2)
+p_u1 <- matrix(c(.03,.3,.5,.5), nrow = 2)
+p_u <- list(p_u0, p_u1)
+# acceptance - dicrimination via department, no direct discrimination
+p <- sapply(1:N, \(i) p_u[[1+u[i]]][D[i],G[i]])
+A <- rbern(N, p)
+```
+
+## Statistical Models
+
+```{r}
+mG <- list()
+```
+
+```{r}
+dat_sim <- list(A=A, D=D, G=G)
+
+mG$total$syntax <- 
+   alist(
+    A ~ bernoulli(p),
+    logit(p) <- a[G],
+    a[G] ~ normal(0,1)
+  )
+
+mG$total$fit <- 
+  ulam(mG$total$syntax,
+       data = dat_sim,
+       chains = 4, cores = 4)
+
+```
+
+### Counfounded direct effect
+```{r}
+mG$direct_conf$syntax <- 
+  alist(
+    A ~ bernoulli(p),
+    logit(p) <- a[G,D],
+    matrix[G,D]:a ~ normal(0,1)
+  )
+
+mG$direct_conf$fit <- 
+  ulam(mG$direct_conf$syntax,
+       data = dat_sim,
+       chains = 4, cores = 4)
+```
+
+```{r}
+mG$direct_conf$post_samples <- 
+  extract.samples(mG$direct_conf$fit)
+
+## plot dos efetitos
+```
+
+É comum que Vieses de Colisor gerem efeitos compensatórios ou de mascaramento da evidẽncia, como aqui.
+
+
+## Gênero e as Academias de Ciências dos EUA
+Condicionando por número de publicações e citações, mulheres tem mais probabilidade de seem eleitas para as Academias. Outro trabalho, porém, mostra que mulheres das Academias tem muito menos citações que homens. Como?
+
+Talvez um colisor de Qualidade do pesquisador.
+
+### Sensitivity Analysis
+
+"What are the implications of what we don't know?"
+Assume-se que um fator de confusão e modela-se suas consequências para diferentes intensidades/tipos de influência. A pergunta respondida é "Quão grande o fator de confusão deve ser para mudar as conclusões?"
+
+É um tipo de análise contrafactual.
+
+O parâmetro relacionado ao fator de confusão é simulado como um dado.
+
+De volta ao exemplo de Berkley, vamos simular o efeito de escolher aplicar para determinado departamento baseado na Habilidade (que não observamos, mas supomos como fator de confusão).
+
+```{r}
+datl <- dat_sim
+datl$D2 <- ifelse(datl$D==2,1,0)
+datl$N <- length(datl$D)
+datl$b <- c(1,1) # alta habilidade aumenta aprovação em ambos os departamentos
+datl$g <- c(1,0) # alta habilidade aumenta a aplicação no departamento 1
+
+mGDu <- ulam(
+  alist(
+    # A model
+    A ~ bernoulli(p),
+    logit(p) <- a[G,D] + b[G]*u[i],
+    matrix[G,D]:a ~ normal(0,1),
+    
+    # D model
+    D2 ~ bernoulli(q),
+    logit(q) <- delta[G] + g[G]*u[i],
+    delta[G] ~ normal(0,1),
+    
+    # declare unobserved u (ability)
+    vector[N]:u ~ normal(0,1)
+  ),
+  data = datl, chains = 4, cores = 4
+)
+```
+
+```{r}
+# dá na mesma criar a variável contrafactual fora do modelo?
+datl$u <- rnorm(2000)
+tt <- ulam(
+  alist(
+    # A model
+    A ~ bernoulli(p),
+    logit(p) <- a[G,D] + b[G]*u,
+    matrix[G,D]:a ~ normal(0,1),
+    
+    # D model
+    D2 ~ bernoulli(q),
+    logit(q) <- delta[G] + g[G]*u,
+    delta[G] ~ normal(0,1)#,
+    
+    # declare unobserved u (ability)
+    #vector[N]:u ~ normal(0,1)
+  ),
+  data = datl, chains = 4, cores = 4
+)
+```
+
+## Poisson regression
+Novo problema: há relação entre complexidade tecnológica (número de ferramentas) e tamanho populacional e contato entre populações?
+
+A link para distribuições de Poisson é a log. Por causa disso, os priors "padrão" de $Normal(0,10)$ geram priors absurdos. Bem melhor usar algo como $Normal(3,.5)$ para interceptos da regressão. 
+
+Neste problema, especificamente, o preditor é em log (um log-linear model) pois são esperados "diminishing returns" nos resultados.
+
+```{r}
+data("Kline")
+kline <- Kline
+```
+
+Comparando modelo só com intercepto e modelo com efeito principal de nível de contato (intercepto por nível) e interação entre tamanho populacional e nível de contato.
+
+```{r}
+
+```
+
+O modelo com menos parâmetros tem PSIS menor! Isso é porque a estrutura, relação, dos parâmetros é mais importante do que o número de parâmetros para modelos mais complexos que modelos gaussianos. 
+
+Modelando a perda de ferramentas ao longo do tempo e os diminishing returns (pessoas inventam a mesma coisa repetidas vezes).
+
+"Sempre que você puder fazer ciência no lugar de estatística, será melhor."

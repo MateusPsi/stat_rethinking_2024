@@ -1,0 +1,56 @@
+---
+title: "Lecture 8 - Markov Chain Monte Carlo"
+format: html
+---
+
+
+```{r}
+library(rethinking)
+```
+
+##
+
+Geração de números aleatórios como forma de executar cálculos.
+Exemplo com TRI. Podemos ter situações em que há mais parâmetros do que dados, nesses casos, o cálculo das Posteriores é extremamente complexo. Os opções para cálculo da Posterior, em geral, são:
+
+1. Abordagem analítica/resolver equações (possível só em modelos muito simples)
+2. Aproximação por grid (muito pesado computacionalmente)
+3. Aproximação quadrática ou laplaciana "ou" máxima verossimilhança (limitada)
+4. Markov Chain Monte Carlo (pesado computacionalmente, mas usável!)
+
+## Algorítimo Metrópolis (1953)
+Nick Metropolis. Arianna Rosenbluth "traduziu" a matemática para a máquina.
+
+Parâmetro: tamanho do passo. Passos grandes são bons para distribuições largas, mas "desperdiçam" muito poder computacional, pois o algorítimo mudo de posição menos vezes. Por outro lado, passos pequenos levam a maior demora pois o movimento é mais lento.
+
+## Monte Carlo Hamiltoniano
+
+Basicmanete, simula o espaço dos parâmetros como um espaço físico e faz caminha pelo espaço de acordo com os gradientes, parando aletatoriamente.
+
+## Stan
+O nome vem de Stanislaw Ulam. 
+Stan é da onde vem a biblioteca que calcula os gradientes para o MCMC.
+
+## A avalição de Princeton
+Avaliação de 20 vinhos, 10 franceses e 10 de New Jersey, em 2012.
+
+```{r}
+data("Wines2012")
+head(Wines2012)
+```
+
+## Diagnósticos de Sequências de Markov
+Para Markov Hamiltoniano, geralmente algumas centanas de amostras são suficientes para obter a distribuição posterior.
+
+### Trace plots
+Warm-up seguido de amostragem.
+
+### Convergência
+Se diferentes sequências chegam à mesma distribuição. Exploram regiões parecidas.
+
+### Trace rank plots
+Aleatório é bom! Não queremos determinados ranks consistentemente acima ou abaixo dos outros.
+
+### 
+
+

@@ -186,12 +186,12 @@ fit_FGW <-
 ```
 
 ```{r}
-post_FGW <- extract.samples(fit_FW)
+post_FGW <- extract.samples(fit_FGW)
 
 post_FGW |> 
   ggplot(aes(bFd))+
   geom_density(fill = "darkslategray2", alpha = .5)+
-  scale_y_continuous(breaks = seq(0,4,1), limits = c(0,4.5),
+  scale_y_continuous(#breaks = seq(0,4,1), limits = c(0,4.5),
                      expand = expansion(c(.01,.05)))+
   labs(x = "Direct effect of Food on Weight (standardized)",
        subtitle = "Posterior distribution")

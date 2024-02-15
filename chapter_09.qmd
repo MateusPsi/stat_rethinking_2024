@@ -1,0 +1,224 @@
+---
+title: "Lecture 09 - Modeling Events"
+subtitle: "Modelos Generalizados"
+format: html
+---
+
+```{r}
+library(tidyverse)
+library(rethinking)
+```
+
+
+UC Berkley Admissions. Investigação da presença de discriminação por gênero na avaliação de candidatos à universidade de Berkley.
+
+Modelo Generalizado pois o _outcome_ são probabilidades, ou chances, que são probabilidades transformadas: "log-odds beast". 
+
+
+## Generative model
+```{r}
+N <- 1000
+# gender
+G <- sample(1:2, size = N, replace = T)
+# gender 1 - department 1, 2-2
+D <- rbern(N, ifelse(G==1, .3, .8)) + 1
+# [dept, gender]
+accept_rate <- matrix(c(.1,.3,.1,.3), nrow = 2)
+# acceptance - dicrimination via department, no direct discrimination
+A <- rbern(N, accept_rate[D,G])
+```
+
+```{r}
+N <- 1000
+# gender
+G <- sample(1:2, size = N, replace = T)
+# gender 1 - department 1, 2-2
+D <- rbern(N, ifelse(G==1, .3, .8)) + 1
+# [dept, gender]
+accept_rate <- matrix(c(.05,.2,.1,.3), nrow = 2)
+# acceptance - dicrimination via department, no direct discrimination
+A <- rbern(N, accept_rate[D,G])
+```
+
+
+## Statistical (Generalized) Model(s)
+
+Em modelos generalizados, uma chatice é que a unidade (ou escala) em que as observações estão não é a mesma da resposta dada pelo modelo (parâmetros).
+
+Em modelos lineares, a variável dependente é modelada pela combinação aditiva de parâmetros (somas!). Isso só é possível para a distribuição normal, pois ela não tem limites. Diferente de probabilidades, por exemplo, que tem um limite claro (0-1). 
+
+Nos modelos generalizados, a variável dependente se torna o valor dado por uma função que recebe o valor observado, a função link. Para obtermos o valor observado a partir da soma dos parâmetros, colocamos eles dentro da função link inversa.
+
+```{r}
+
+```
+
+Distribuições são formas relativas de observar dados, após certos pressupostos.
+Logit = log-odds! Logistic.
+
+### Logistic priors
+-6 (nunca), -4(quase nunca), 0 (50%), 4 (quase sempre), 6 (sempre)
+
+### Prior predictive simulation
+
+
+```{r}
+a <- rnorm(1e4, 0,10)
+b <- rnorm(1e4, 0, 10)
+
+xseq <- seq(-3,3, len = 100)
+p <- sapply(xseq, \(x) inv_logit(a+b*x))
+
+plot(NULL, xlim = c(-2.5, 2.5), ylim = c(0,1),
+     xlab = "x value", ylab = "probability", main = "Wide priors")
+
+for (i in 1:10) lines(xseq, p[i,], lwd = 3, col =2)
+```
+
+```{r}
+a <- rnorm(1e4, 0,1.5)
+b <- rnorm(1e4, 0, 1)
+
+xseq <- seq(-3,3, len = 100)
+p <- sapply(xseq, \(x) inv_logit(a+b*x))
+
+plot(NULL, xlim = c(-2.5, 2.5), ylim = c(0,1),
+     xlab = "x value", ylab = "probability", main = "Narrow priors")
+
+for (i in 1:10) lines(xseq, p[i,], lwd = 3, col =3)
+```
+
+### Total effect
+```{r}
+dat_sim <- list(A =A, D=D, G=G)
+m1 <- list()
+m1$syntax <- 
+  alist(
+    A ~ bernoulli(p),
+    logit(p) <- a[G],
+    a[G] ~ normal(0,1)
+  )
+m1$fit <- ulam(m1$syntax, data= dat_sim, chains = 4, cores = 4)
+```
+
+```{r}
+precis(m1$fit, depth = 2)
+```
+
+## Direct effect
+```{r}
+m2 <- list()
+m2$syntax <- 
+  alist(
+    A ~ bernoulli(p),
+    logit(p) <- a[G,D],
+    matrix[G,D]:a ~ normal(0,1)
+  )
+m2$fit <- ulam(m2$syntax,
+               data = dat_sim,
+               chains = 4, cores = 4)
+```
+
+```{r}
+precis(m2$fit, depth = 3)
+```
+
+## Real data
+```{r}
+data("UCBadmit")
+
+cols <- c("D","G","A","reject","N")
+d <- 
+  UCBadmit |> 
+  rename_with(~cols) |> 
+  mutate(G = as.numeric(G),
+         D = as.integer(D)) |> 
+  select(-reject)
+
+mG <- list()
+```
+
+```{r}
+mG$syntax$totalG <- 
+  alist(
+    A ~ binomial(N,p),
+    logit(p) <- a[G],
+    a[G] ~ normal(0,1)
+  )
+mG$fit$totalG <- ulam(mG$syntax$totalG,
+               data = d,
+               chains = 4, cores = 4)
+```
+
+```{r}
+precis(mG$fit$totalG, depth = 2)
+```
+
+```{r}
+post1 <- extract.samples(mG$fit$totalG)
+probs <- 
+  post1$a |> 
+  as_tibble() |>
+  rename_with(~c("M","Fe")) |> 
+  purrr::map(~as.data.frame(inv_logit(.x))) |> 
+  list_cbind() |> 
+  mutate(contrast = M-Fe)
+
+dens(probs$contrast[,1], lwd = 4, col =2, 
+     xlab = "Gender contrast (prob)")
+```
+
+
+
+```{r}
+mG$syntax$directG <- 
+  alist(
+    A ~ binomial(N,p),
+    logit(p) <- a[G,D],
+    matrix[G,D]:a ~ normal(0,1)
+  )
+mG$fit$directG <- ulam(mG$syntax$directG,
+               data = d,
+               chains = 4, cores = 4)
+```
+
+```{r}
+post2 <- extract.samples(mG$fit$directG)
+PrA <- inv_logit(post2$a)
+diff_prob_D <- sapply(1:6, \(i) PrA[,1,i] - PrA[,2,i])
+
+plot(NULL, xlim = c(-.2,.3), ylim = c(0,25),
+     xlab = "Gender contrast (prob)", ylab = "Density")
+for (i in 1:6) dens(diff_prob_D[,i], lwd = 4, col =i+1, 
+     xlab = "Gender contrast (prob)", add = T)
+```
+
+
+## Simulação de intervenção sobre (a percepção d)o gênero
+
+```{r}
+# aplications to simmulate
+total_apps <- sum(d$N)
+
+# applications pe department
+apps_per_dept <- sapply(1:6, \(i) sum(d$N[d$D==i])) 
+
+# simulate all apps from women
+p_G1 <- link(mG$fit$directG,
+             data = list(D=rep(1:6,times = apps_per_dept),
+                         N=rep(1,total_apps),
+                         G=rep(1,total_apps)))
+
+# simulate all apps from men
+p_G2 <- link(mG$fit$directG,
+             data = list(D=rep(1:6,times = apps_per_dept),
+                         N=rep(1,total_apps),
+                         G=rep(2,total_apps)))
+
+#summarise
+dens(p_G1-p_G2, lwd =4, col =2, 
+     xlab="effect of gender perception")
+
+```
+
+Post-stratification.

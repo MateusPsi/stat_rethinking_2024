@@ -17,10 +17,10 @@ theme_set(theme_bw(16, "Roboto"))
 Modelo generativo:
 ```{r}
 n <- 1e3
-before <- rnorm(n+1, sd = 1.5)
-after <- rnorm(n+1, before+runif(n,.5,1))
+g1 <- rnorm(n, sd = 1.5)
+g2 <- rnorm(n, g1+rnorm(n,.5,.1))
 
-tibble(before = before, after = after) |> 
+tibble(g1 = g1, g2 = g2) |> 
   mutate(id = 1:n()) |> 
   pivot_longer(-id,names_to = "Stage") |> 
   ggplot(aes("",y = value, fill = Stage))+
@@ -33,36 +33,36 @@ tibble(before = before, after = after) |>
 t_regression <- list()
 t_regression$syntax <- 
   alist(
-    before ~ dnorm(mu_before, sigma_before),
-    mu_before <- a_before,
-    after ~ dnorm(mu_after, sigma_after),
-    mu_after <- a_after,
+    g1 ~ normal(mu_g1, sigma_g1),
+    mu_g1 <- a_g1,
+    g2 ~ normal(mu_g2, sigma_g2),
+    mu_g2 <- a_g2,
     
     #priors
-    c(a_before, a_after) ~ dunif(-1,1),
-    c(sigma_before, sigma_after) ~ dexp(1)
+    c(a_g1, a_g2) ~ uniform(-1,1),
+    c(sigma_g1, sigma_g2) ~ exponential(1)
   
   )
 
 t_regression$fit <- 
   ulam(t_regression$syntax,
-       list(before = before, after = after),
-       chains = 3, cores = 3,iter = 300)
+       list(g1 = g1, g2 = g2),
+       chains = 3, cores = 3,iter = 2000)
 ```
 
 ```{r}
-precis(t_regression$fit, pars = c("a_before","a_after"))
+precis(t_regression$fit, pars = c("a_g1","a_g2"))
 ```
 
 
 ```{r}
 post <- extract.samples(t_regression$fit)
-dens(post$a_before, xlim = c(-.2,1))
-dens(post$a_after, col = 4,add=T)
+dens(post$a_g1, xlim = c(-.2,1))
+dens(post$a_g2, col = 4,add=T)
 ```
 
 ```{r}
-t_regression$contrast <- post$a_after - post$a_before
+t_regression$contrast <- post$a_g2 - post$a_g1
 
 dens(t_regression$contrast, col = 2)
 ```
@@ -70,18 +70,716 @@ dens(t_regression$contrast, col = 2)
 ```{r}
 linked <- link(t_regression$fit)
 #simulated <- sim(t_regression$fit) # why dosen't this work ?
-tibble(obs = c(before, after), pred = linked$mu_before) |> 
-  mutate(stage = rep(c("before","after"),each = 1000)) |> 
+tibble(obs = c(g1, g2), pred = linked$mu_g1) |> 
+  mutate(stage = rep(c("g1","g2"),each = 1000)) |> 
   ggplot(aes(obs, pred, color = stage))+
   geom_point()+
   stat_smooth(metho = "lm")
 ```
 
 
-## Modelando os dados de silogismo
+## Modelando os dados de acurácia do Stroop com depleção de ego
+
 
 ```{r}
-sylogism <- afex::ks2013.3
+stroop <- afex::stroop
+
+stroop <- 
+  stroop |> 
+  filter(study =="1") |> 
+  mutate(pno = droplevels(pno))
 ```
 
+Modelo generativo para congruência.
+```{r}
+n_per_cond <- 1e3
+# 1= incongruent, 2 = congruent
+congruence <- rep(1:2, each = n_per_cond)
+acc <- rbern(2e3,ifelse(congruence==1, .2, .8)) + 1
+
+tibble(congruence = congruence,
+       acc = acc-1) |> 
+  group_by(congruence) |> 
+  summarise(acc = mean(acc), sd = sd(acc))
+```
+
+Prior predictive simulation
+```{r}
+prior_alfas <- rnorm(1e4,0,10) 
+tibble(prob = logistic(prior_alfas)) |> 
+  ggplot(aes(prob))+
+  geom_density()
+
+tibble(prob = inv_logit(prior_alfas)) |> 
+  ggplot(aes(prob))+
+  geom_density()
+
+tibble(x = seq(-3,3, len = 50)) |> 
+  mutate(probs = purrr::map(x, 
+                            ~tibble(prob = inv_logit(prior_alfas + .x),
+                            sim_n = 1:length(prior_alfas))
+                            )
+         ) |> 
+  unnest(probs) |> 
+  filter(sim_n %in% sample(1:1e4, 15, replace = F)) |> 
+  ggplot(aes(x,prob, group = sim_n))+
+  geom_line()
+  
+```
+
+```{r}
+prior_alfas <- rnorm(1e4,0,10)
+tibble(x = c(0,1)) |> 
+  mutate(probs = purrr::map(x, 
+                            ~tibble(prob = inv_logit(prior_alfas+.x),
+                            sim_n = 1:length(prior_alfas))
+                            )
+         ) |> 
+  unnest(probs) |> 
+  filter(sim_n %in% sample(1:1e4, 1000, replace = F)) |> 
+  ggplot(aes(as.factor(x),prob))+
+  geom_rain()
+
+prior_alfas <- rnorm(1e4,0,1)
+tibble(x = c(0,1)) |> 
+  mutate(probs = purrr::map(x, 
+                            ~tibble(prob = inv_logit(prior_alfas+.x),
+                            sim_n = 1:length(prior_alfas))
+                            )
+         ) |> 
+  unnest(probs) |> 
+  filter(sim_n %in% sample(1:1e4, 1000, replace = F)) |> 
+  ggplot(aes(as.factor(x),prob))+
+  geom_rain()
+
+prior_alfas <- rnorm(1e4,0,1.1)
+tibble(x = c(0,1)) |> 
+  mutate(probs = purrr::map(x, 
+                            ~tibble(prob = inv_logit(prior_alfas+.x),
+                            sim_n = 1:length(prior_alfas))
+                            )
+         ) |> 
+  unnest(probs) |> 
+  filter(sim_n %in% sample(1:1e4, 1000, replace = F)) |> 
+  ggplot(aes(as.factor(x),prob))+
+  geom_rain()
+```
+
+Modelagem nos dados simulados
+```{r}
+m_sim_C <- 
+  ulam(
+  alist(
+    acc ~ bernoulli(p),
+    logit(p) <- alpha[congruence],
+    
+    alpha[congruence] ~ normal(0,1)
+  ), data = list(acc = acc-1, congruence = congruence),
+  chains = 4, cores = 4
+)
+```
+
+```{r}
+precis(m_sim_C, depth = 2) |> 
+  as_tibble() |> 
+  mutate(across(mean:`94.5%`, inv_logit))
+post <- extract.samples(m_sim_C)
+post <- post$alpha |> inv_logit()
+post |> 
+  as_tibble(.name_repair = ~c("incongruent","congruent")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Congruence") |> 
+  ggplot(aes(value, colour = Congruence))+
+  geom_density()
+```
+
+Funciona!! Vamos mudar os valores para algo menos extremo.
+
+```{r}
+congruence <- rep(1:2, each = n_per_cond)
+acc <- rbern(2e3,ifelse(congruence==1, .5, .6))
+
+m_sim_C <- 
+  ulam(
+  alist(
+    acc ~ bernoulli(p),
+    logit(p) <- alpha[congruence],
+    
+    alpha[congruence] ~ normal(0,1)
+  ), data = list(acc = acc, congruence = congruence),
+  chains = 4, cores = 4
+)
+```
+
+```{r}
+precis(m_sim_C, depth = 2) |> 
+  as_tibble() |> 
+  mutate(across(mean:`94.5%`, inv_logit))
+post <- extract.samples(m_sim_C)
+post <- post$alpha |> inv_logit()
+post |> 
+  as_tibble(.name_repair = ~c("incongruent","congruent")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Congruence") |> 
+  ggplot(aes(value, colour = Congruence))+
+  geom_density()
+```
+
+Beautiful!!
+
+### Adicionando o efeito de ego-depletion
+
+```{r}
+congruence <- rep(1:2, each = n_per_cond)
+depletion <- rep(c(1:2,1:2), each = n_per_cond/4)
+sim_dat_CD <- 
+  expand_grid(congruence = 1:2,
+            depletion = 1:2) |> 
+  mutate(effect = c(.35, .2, .85,.65),
+         acc = purrr::map(effect, ~rbern(200,.x))) |> 
+  unnest(cols = c(acc))
+
+sim_dat_CD |> 
+  group_by(congruence, depletion) |> 
+  summarise(mean(acc))
+```
+
+```{r}
+m_sim_CD <- 
+  ulam(
+  alist(
+    acc ~ bernoulli(p),
+    logit(p) <- alpha[congruence] + beta[depletion]*depletion,
+    
+    alpha[congruence] ~ normal(0,1),
+    beta[depletion] ~ normal(0,1)
+  ), data = select(sim_dat_CD, -effect),
+  chains = 4, cores = 4
+)
+```
+
+```{r}
+precis(m_sim_CD,depth = 2) |> 
+   as_tibble(rownames = "param") |> 
+  mutate(across(mean:`94.5%`, inv_logit))
+
+sim_dat_CD |> 
+  group_by(congruence, depletion) |> 
+  summarise(mean(acc))
+```
+
+```{r}
+m_sim_CD_only_alphas <- 
+  ulam(
+  alist(
+    acc ~ bernoulli(p),
+    logit(p) <- alpha[congruence,depletion],
+    
+    matrix[congruence, depletion]:alpha ~ normal(0,1)
+  ), data = select(sim_dat_CD, -effect),
+  chains = 4, cores = 4
+)
+```
+
+```{r}
+precis(m_sim_CD_only_alphas,depth = 3) |> 
+   as_tibble(rownames = "param") |> 
+  mutate(across(mean:`94.5%`, inv_logit))
+
+sim_dat_CD |> 
+  group_by(congruence, depletion) |> 
+  summarise(mean(acc))
+```
+
+### Incluindo variabilidade por participante
+
+```{r}
+n_participants <- 10
+sim_dat_CD_high <- 
+  expand_grid(participant = 1:n_participants,
+              congruence = 1:2,
+            depletion = 1:2) |> 
+  mutate(effect = rep(c(.35, .2, .85,.65), n_participants)) |> 
+  group_by(participant) |> 
+  mutate(participant_sigma = rexp(1)) |> 
+  ungroup() %>% 
+  mutate(acc = purrr::map(effect, ~rbern(100,.x))) |> 
+  unnest(cols = c(acc))
+
+sim_dat_CD_high %>% 
+  mutate(across(congruence:depletion, as.factor)) %>% 
+  group_by(participant, congruence, depletion) %>% 
+  summarise(prob = mean(acc)) %>% 
+  ggplot(aes(congruence, prob, fill = depletion))+
+  geom_point(aes(colour = depletion), position = position_dodge2(.25))+
+  geom_boxplot(width = .2, alpha = .5)
+  
+```
+
+```{r}
+sim_dat_CD_high <- 
+  sim_dat_CD_high %>% 
+    mutate(interaction = 
+           case_when(
+             congruence == 1 & depletion == 1 ~ 1,
+             congruence == 2 & depletion == 1 ~ 2,
+             congruence == 1 & depletion == 2 ~ 3,
+             congruence == 2 & depletion == 2 ~ 4)
+           )
+
+
+m_sim_CD_high <- 
+  ulam(
+  alist(
+    acc ~ bernoulli(p),
+    logit(p) <- alpha_p[participant]+alpha_inter[interaction],
+    
+    alpha_p[participant] ~ normal(alpha_bar, sigma),
+    alpha_inter[interaction] ~ normal(0,1),
+    alpha_bar ~ normal(0,1),
+    sigma ~ exponential(1)
+    
+  ), data = sim_dat_CD_high,
+  chains = 4, cores = 4, iter = 6e3)
+```
+
+```{r}
+precis(m_sim_CD_high, depth = 3) %>%  
+  as_tibble(rownames = "param") |> 
+  mutate(across(mean:`94.5%`, inv_logit))
+```
+
+```{r}
+# Com slope aleatório ! Mas sem efeitos fixos de interação
+# "centred priors"
+m_sim_CD_high_varInter <- 
+  ulam(
+  alist(
+    acc ~ bernoulli(p),
+    logit(p) <- alpha_p[participant]+beta_inter[participant]*interaction,
+    
+    alpha_p[participant] ~ normal(alpha_bar, sigma),
+    beta_inter[participant] ~ normal(beta_bar, tau),
+    c(alpha_bar, beta_bar) ~ normal(0,1),
+    c(sigma,tau) ~ exponential(1)
+    
+  ), data = sim_dat_CD_high,
+  chains = 4, cores = 4, iter = 6e3)
+```
+
+```{r}
+precis(m_sim_CD_high_varInter, depth = 3)
+```
+
+```{r}
+# uncentred priors 
+
+m_sim_CD_high_varInter_unc <- 
+  ulam(
+  alist(
+    acc ~ bernoulli(p),
+    logit(p) <- alpha_p[participant]+beta_inter[participant]*interaction,
+    
+    save> vector[10]:alpha_p    <<- alpha_bar + z_alpha*sigma, # não funciona indexando com [participant]
+    save> vector[10]:beta_inter <<- beta_bar  + z_beta*tau,
+    
+    #z-scored effects
+    z_alpha[participant] ~ normal(0,1),
+    z_beta[participant]  ~ normal(0,1),
+    
+    # hyper-priors
+    c(alpha_bar, beta_bar) ~ normal(0,1),
+    c(sigma,tau) ~ exponential(1)
+    
+  ), data = sim_dat_CD_high,
+  chains = 4, cores = 4, iter = 5e3)
+
+```
+
+```{r}
+traceplot(m_sim_CD_high_varInter_unc)
+```
+
+### Uncentred varying intercepts (random intercepts). Fixed effects for interaction.
+
+```{r}
+m_sim_CD_high_fixed_varInter_unc <- 
+  ulam(
+  alist(
+    acc ~ bernoulli(p),
+    logit(p) <- alpha_p[participant]+alpha_inter[interaction],
+    
+    save> vector[10]:alpha_p    <<- alpha_bar + z_alpha*sigma, # não funciona indexando com [participant]
+    
+    #z-scored effects
+    z_alpha[participant] ~ normal(0,1),
+    
+    # effects prior
+    alpha_inter[interaction] ~ normal(0,1),
+   
+    # hyper-priors
+    alpha_bar ~ normal(0,1),
+    sigma ~ exponential(1)
+    
+  ), data = sim_dat_CD_high,
+  chains = 4, cores = 4, iter = 5e3)
+```
+
+```{r}
+precis(m_sim_CD_high_fixed_varInter_unc, depth = 2) %>% 
+   as_tibble(rownames = "param") |> 
+  mutate(across(mean:`94.5%`, inv_logit))
+```
+
+```{r}
+post <- extract.samples(m_sim_CD_high_fixed_varInter_unc, pars = c("alpha_inter"))
+post <- post$alpha_inter |> inv_logit()
+post |> 
+  as_tibble(.name_repair = ~c("incongruent_easy","congruent_easy",
+                              "incongruent_hard","congruent_hard")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Interaction",
+               values_to = "Hit_probability") |> 
+  mutate(Interaction = as.factor(Interaction)) %>% 
+  ggplot(aes(Hit_probability, colour = Interaction))+
+  geom_density()
+```
+
+### Now with main effects
+
+```{r}
+m_sim_CD_high_fullfixed_varInter_unc <- 
+  ulam(
+  alist(
+    acc ~ bernoulli(p),
+    logit(p) <- alpha_p[participant]+alpha_congruence[congruence]+alpha_depletion[depletion]+alpha_inter[interaction],
+    
+    save> vector[10]:alpha_p    <<- alpha_bar + z_alpha*sigma, # não funciona indexando com [participant]
+    
+    #z-scored effects
+    z_alpha[participant] ~ normal(0,1),
+    
+    # effects priors
+    alpha_congruence[congruence] ~ normal(0,1),
+    alpha_depletion[depletion] ~ normal(0,1),
+    alpha_inter[interaction] ~ normal(0,1),
+   
+    # hyper-priors
+    alpha_bar ~ normal(0,1),
+    sigma ~ exponential(1)
+    
+  ), data = sim_dat_CD_high,
+  chains = 4, cores = 4, iter = 4e3)
+```
+
+```{r}
+post <- extract.samples(m_sim_CD_high_fullfixed_varInter_unc)
+to_plot <- post$alpha_congruence |> inv_logit()
+to_plot |> 
+  as_tibble(.name_repair = ~c("incongruent","congruent")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Congruence",
+               values_to = "probability") |> 
+  mutate(Congruence = as.factor(Congruence)) %>% 
+  ggplot(aes(probability, colour = Congruence))+
+  geom_density()
+```
+
+```{r}
+to_plot <- post$alpha_depletion |> inv_logit()
+to_plot |> 
+  as_tibble(.name_repair = ~c("easy","hard")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Depletion",
+               values_to = "probability") |> 
+  mutate(Depletion = as.factor(Depletion)) %>% 
+  ggplot(aes(probability, colour = Depletion))+
+  geom_density()
+  
+```
+
+```{r}
+to_plot <- post$alpha_inter |> inv_logit()
+to_plot |> 
+  as_tibble(.name_repair = ~c("incongruent_easy","congruent_easy",
+                              "incongruent_hard","congruent_hard")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Interaction",
+               values_to = "probability") |> 
+  mutate(Interaction = as.factor(Interaction)) %>% 
+  ggplot(aes(probability, colour = Interaction))+
+  geom_density()
+```
+
+### Aumentar o n deixa as estimativas mais precisas?
+
+```{r}
+n_participants <- 20
+sim_dat_CD_high <- 
+  expand_grid(participant = 1:n_participants,
+              congruence = 1:2,
+            depletion = 1:2) |> 
+  mutate(effect = rep(c(.35, .2, .85,.65), n_participants)) |> 
+  group_by(participant) |> 
+  mutate(participant_sigma = rexp(1)) |> 
+  ungroup() %>% 
+  mutate(acc = purrr::map(effect, ~rbern(100,.x))) |> 
+  unnest(cols = c(acc)) %>% 
+  mutate(interaction = 
+           case_when(
+             congruence == 1 & depletion == 1 ~ 1,
+             congruence == 2 & depletion == 1 ~ 2,
+             congruence == 1 & depletion == 2 ~ 3,
+             congruence == 2 & depletion == 2 ~ 4)
+           )
+```
+
+```{r}
+m_sim_CD_high_fullfixed_varInter_unc <- 
+  ulam(
+  alist(
+    acc ~ bernoulli(p),
+    logit(p) <- alpha_p[participant]+alpha_congruence[congruence]+alpha_depletion[depletion]+alpha_inter[interaction],
+    
+    save> vector[20]:alpha_p    <<- alpha_bar + z_alpha*sigma, # não funciona indexando com [participant]
+    
+    #z-scored effects
+    z_alpha[participant] ~ normal(0,1),
+    
+    # effects priors
+    alpha_congruence[congruence] ~ normal(0,1),
+    alpha_depletion[depletion] ~ normal(0,1),
+    alpha_inter[interaction] ~ normal(0,1),
+   
+    # hyper-priors
+    alpha_bar ~ normal(0,1),
+    sigma ~ exponential(1)
+    
+  ), data = sim_dat_CD_high,
+  chains = 4, cores = 4, iter = 4e3)
+```
+
+```{r}
+post <- extract.samples(m_sim_CD_high_fullfixed_varInter_unc)
+to_plot <- post$alpha_congruence |> inv_logit()
+to_plot |> 
+  as_tibble(.name_repair = ~c("incongruent","congruent")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Congruence",
+               values_to = "probability") |> 
+  mutate(Congruence = as.factor(Congruence)) %>% 
+  ggplot(aes(probability, colour = Congruence))+
+  geom_density()
+
+to_plot <- post$alpha_depletion |> inv_logit()
+to_plot |> 
+  as_tibble(.name_repair = ~c("easy","hard")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Depletion",
+               values_to = "probability") |> 
+  mutate(Depletion = as.factor(Depletion)) %>% 
+  ggplot(aes(probability, colour = Depletion))+
+  geom_density()
+
+to_plot <- post$alpha_inter |> inv_logit()
+to_plot |> 
+  as_tibble(.name_repair = ~c("incongruent_easy","congruent_easy",
+                              "incongruent_hard","congruent_hard")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Interaction",
+               values_to = "probability") |> 
+  mutate(Interaction = as.factor(Interaction)) %>% 
+  ggplot(aes(probability, colour = Interaction))+
+  geom_density()
+```
+
+```{r}
+precis(m_sim_CD_high_fullfixed_varInter_unc, depth =2) %>% 
+   as_tibble(rownames = "param") |> 
+  mutate(across(mean:`94.5%`, inv_logit))
+```
+
+Não deixa, não. Talvez, aumentar o número de observações por participante?
+
+```{r}
+n_participants <- 10
+sim_dat_CD_high <- 
+  expand_grid(participant = 1:n_participants,
+              congruence = 1:2,
+            depletion = 1:2) |> 
+  mutate(effect = rep(c(.35, .2, .85,.65), n_participants)) |> 
+  group_by(participant) |> 
+  mutate(participant_sigma = rexp(1)) |> 
+  ungroup() %>% 
+  mutate(acc = purrr::map(effect, ~rbern(200,.x))) |> 
+  unnest(cols = c(acc)) %>% 
+  mutate(interaction = 
+           case_when(
+             congruence == 1 & depletion == 1 ~ 1,
+             congruence == 2 & depletion == 1 ~ 2,
+             congruence == 1 & depletion == 2 ~ 3,
+             congruence == 2 & depletion == 2 ~ 4)
+           )
+```
+
+```{r}
+library(afex)
+library(emmeans)
+```
+
+```{r}
+frequentist_glmm <- 
+  mixed(acc ~ congruence*depletion + (1|participant),
+      data = sim_dat_CD_high,
+      family = binomial,
+      method = "LRT")
+
+frequentist_glmm %>% 
+  emmeans(~congruence*depletion, type = "response")
+```
+
+Me parece que o modelo frequentista já roda as interações como se fossem um modelo independente dentro do outro. Isso faz sentido com a instrução de não interpretar efeito principal se dentro de interação.
+No baesiano que fiz acima não são efeitos independentes, então a interação fica sem variância para explicar. 
+
+Sendo assim, vamos tantar fazer um "full luxury bayes" e calcular o modelo para efeitos principais e interação juntos.
+
+```{r}
+m_sim_CD_high_fullluxury_varInter_unc <- 
+  ulam(
+  alist(
+    # main effects
+    acc ~ bernoulli(p),
+    logit(p) <- alpha_p[participant]+alpha_congruence[congruence]+alpha_depletion[depletion],
+    # interaction
+    acc ~ bernoulli(pp),
+    logit(pp) <- alpha_inter[interaction],
+    
+    save> vector[10]:alpha_p    <<- alpha_bar + z_alpha*sigma, # não funciona indexando com [participant]
+    
+    #z-scored effects
+    z_alpha[participant] ~ normal(0,1),
+    
+    # effects priors
+    alpha_congruence[congruence] ~ normal(0,1),
+    alpha_depletion[depletion] ~ normal(0,1),
+    alpha_inter[interaction] ~ normal(0,1),
+   
+    # hyper-priors
+    alpha_bar ~ normal(0,1),
+    sigma ~ exponential(1)
+    
+  ), data = sim_dat_CD_high,
+  chains = 4, cores = 4, iter = 4e3)
+```
+
+```{r}
+post <- extract.samples(m_sim_CD_high_fullluxury_varInter_unc)
+to_plot <- post$alpha_congruence |> inv_logit()
+to_plot |> 
+  as_tibble(.name_repair = ~c("incongruent","congruent")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Congruence",
+               values_to = "probability") |> 
+  mutate(Congruence = as.factor(Congruence)) %>% 
+  ggplot(aes(probability, colour = Congruence))+
+  geom_density()
+
+to_plot <- post$alpha_depletion |> inv_logit()
+to_plot |> 
+  as_tibble(.name_repair = ~c("easy","hard")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Depletion",
+               values_to = "probability") |> 
+  mutate(Depletion = as.factor(Depletion)) %>% 
+  ggplot(aes(probability, colour = Depletion))+
+  geom_density()
+
+to_plot <- post$alpha_inter |> inv_logit()
+to_plot |> 
+  as_tibble(.name_repair = ~c("incongruent_easy","congruent_easy",
+                              "incongruent_hard","congruent_hard")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Interaction",
+               values_to = "probability") |> 
+  mutate(Interaction = as.factor(Interaction)) %>% 
+  ggplot(aes(probability, colour = Interaction))+
+  geom_density()
+```
+
+Ooooh yeaaahh!
+
+## Real data!
+
+Mas só 20 participantes para começar.
+```{r}
+participants <- stroop$pno %>% unique()
+stroop_data <- 
+  stroop %>% 
+  filter(pno %in% participants[1:20]) %>% 
+  mutate(pno = droplevels(pno)) %>% 
+  drop_na(acc)
+```
+
+```{r}
+m_stroop <- 
+  ulam(
+  alist(
+    # main effects
+    acc ~ bernoulli(p),
+    logit(p) <- alpha_p[pno]+alpha_congruency[congruency]+alpha_condition[condition],
+    # interaction
+    acc ~ bernoulli(pp),
+    logit(pp) <- alpha_inter[congruency, condition],
+    
+    save> vector[20]:alpha_p    <<- alpha_bar + z_alpha*sigma, # não funciona indexando com [participant]
+    
+    #z-scored effects
+    z_alpha[pno] ~ normal(0,1),
+    
+    # effects priors
+    alpha_congruency[congruency] ~ normal(0,1),
+    alpha_condition[condition] ~ normal(0,1),
+    matrix[congruency, condition]:alpha_inter ~ normal(0,1),
+   
+    # hyper-priors
+    alpha_bar ~ normal(0,1),
+    sigma ~ exponential(1)
+    
+  ), data = stroop_data,
+  chains = 4, cores = 4, iter = 4e3)
+```
+
+```{r}
+post <- extract.samples(m_stroop)
+to_plot <- post$alpha_congruency |> inv_logit()
+to_plot |> 
+  as_tibble(.name_repair = ~c("congruent","incongruent")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Congruence",
+               values_to = "probability") |> 
+  mutate(Congruence = as.factor(Congruence)) %>% 
+  ggplot(aes(probability, colour = Congruence))+
+  geom_density()
+
+to_plot <- post$alpha_condition |> inv_logit()
+to_plot |> 
+  as_tibble(.name_repair = ~c("control","deplete")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Depletion",
+               values_to = "probability") |> 
+  mutate(Depletion = as.factor(Depletion)) %>% 
+  ggplot(aes(probability, colour = Depletion))+
+  geom_density()
+
+to_plot <- post$alpha_inter |> inv_logit()
+to_plot |> 
+  as_tibble(.name_repair = ~c("congruent_control","congruent_depletion",
+                              "incongruent_control","incongruent_depletion")) |> 
+  mutate(obs = 1:n()) |> 
+  pivot_longer(-obs, names_to = "Interaction",
+               values_to = "probability") |> 
+  mutate(Interaction = as.factor(Interaction)) %>% 
+  ggplot(aes(probability, colour = Interaction))+
+  geom_density()
+```
 

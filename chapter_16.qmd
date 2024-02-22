@@ -1,0 +1,26 @@
+---
+title: "Lecture 15 - Social Networks"
+format: 
+  html:
+    theme: cerulean
+---
+
+```{r}
+library(tidyverse)
+library(rethinking)
+```
+
+Retorno às populações das ilhas oceânicas e o desenvolvimento de ferramentas. Agora vamos adicionar a proximidade geográfica.
+
+Para isso, vamos adicionar uma matriz de covariância ou "Kernel" como parte do prior de efeitos aleatórios. Para diminuir o número de parâmetros da matriz, incuímos _estrutura_ nela, ou seja, informação de como os valores se relacionam. Isso é feito descrevendo uma função que gera os valores da matriz! E o resultado é que as matrizes podem ser n-dimensionais, pois os valores são dados pela função independentemente do número de dimensões! "Infinite-dimensional generalization of multivariate normal distributions".
+
+Ajuda a modelar variáveis podem ser entendidas como "categorias ordenadas contínuas".
+
+```{r}
+data("Kline2")
+```
+
+```{r}
+
+```
+

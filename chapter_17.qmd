@@ -1,0 +1,124 @@
+---
+title: "Lecture 17 - Measurement"
+format: 
+  html:
+    theme: cerulean
+---
+
+```{r}
+library(tidyverse)
+library(rethinking)
+```
+
+```{r}
+data(WaffleDivorce)
+d <- WaffleDivorce
+```
+
+Desenhar no DAG os processos de medição para ver possíveis "portas dos fundos". No exemplo, o tamnho da população é causa do erro de medida (quanto maior a população, menor o erro) e causa do número de divórcios tbm.
+
+```{r}
+dlist <- list(
+    D_obs = standardize( d$Divorce ),
+    D_sd = d$Divorce.SE / sd( d$Divorce ),
+    M = standardize( d$Marriage ),
+    A = standardize( d$MedianAgeMarriage ),
+    N = nrow(d)
+)
+
+m15.1 <- ulam(
+    alist(
+        # model for D* (observed)
+        D_obs ~ dnorm( D_true , D_sd ),
+
+        # model for D (unobserved)
+        vector[N]:D_true ~ dnorm( mu , sigma ),
+        mu <- a + bA*A + bM*M,
+        a ~ dnorm(0,0.2),
+        bA ~ dnorm(0,0.5),
+        bM ~ dnorm(0,0.5),
+        sigma ~ dexp(1)
+    ) , data=dlist , chains=4 , cores=4 )
+
+precis( m15.1 , depth=2 )
+```
+
+Pensar em submodelos ao invés de uma única regressão que vai resolver tudo.
+
+Modelo sem levar em conta os erros de medida:
+```{r}
+mDAM <- ulam(
+    alist(
+        D_obs ~ dnorm( mu , sigma ),
+        mu <- a + bA*A + bM*M,
+        a ~ dnorm(0,0.2),
+        bA ~ dnorm(0,0.5),
+        bM ~ dnorm(0,0.5),
+        sigma ~ dexp(1)
+    ) , data=dlist , chains=4 , cores=4 )
+```
+
+
+Modelo com os errors de medida para Marriage e para Divorce:
+
+```{r}
+dlist2 <- list(
+    D_obs = standardize( d$Divorce ),
+    D_sd = d$Divorce.SE / sd( d$Divorce ),
+    M_obs = standardize( d$Marriage ),
+    M_sd = d$Marriage.SE / sd( d$Marriage ),
+    A = standardize( d$MedianAgeMarriage ),
+    N = nrow(d)
+)
+
+m15.2 <- ulam(
+    alist(
+        # D* model (observed)
+        D_obs ~ dnorm( D_true , D_sd ),
+
+        # D model (unobserved)
+        vector[N]:D_true ~ dnorm( mu , sigma ),
+        mu <- a + bA*A + bM*M_true[i],
+        a ~ dnorm(0,0.2),
+        bA ~ dnorm(0,0.5),
+        bM ~ dnorm(0,0.5),
+        sigma ~ dexp( 1 ),
+
+        # M* model (observed)
+        M_obs ~ dnorm( M_true , M_sd ),
+
+        # M model (unobserved)
+        vector[N]:M_true ~ dnorm( nu , tau ),
+        nu <- aM + bAM*A,
+        aM ~ dnorm(0,0.2),
+        bAM ~ dnorm(0,0.5),
+        tau ~ dexp( 1 )
+
+    ) , data=dlist2 , chains=4 , cores=4 )
+```
+
+
+```{r}
+## R code 15.6
+post <- extract.samples( m15.2 )
+D_true <- apply( post$D_true , 2 , mean )
+M_true <- apply( post$M_true , 2 , mean )
+plot( dlist2$M_obs , dlist2$D_obs , pch=1 , lwd=3 , col=grau(0.8) ,
+    xlab="marriage rate (std)" , ylab="divorce rate (std)" )
+points( M_true , D_true , lwd=3 , col=2 )
+for ( i in 1:nrow(d) )
+    lines( c( dlist2$M_obs[i] , M_true[i] ) , c( dlist2$D_obs[i] , D_true[i] ) , lwd=2 , col=col.alpha(2,0.5) )
+
+post_old <- extract.samples(mDAM)
+dens( post_old$bA , lwd=4 , col=grau() , xlab="bA (effect of A)" )
+dens( post$bA , lwd=4 , col=2 , add=TRUE )
+abline(v=0,lty=3)
+
+dens( post_old$bM , lwd=4 , col=grau() , xlab="bM (effect of M)" , xlim=c(-0.6,1) )
+dens( post$bM, lwd=4 , col=2 , add=TRUE )
+abline(v=0,lty=3)
+```
+
+## Missclassification
+
+Os Himba. Proporção de crianças cujo pai é o namorado e não o marido (os Himbas tem casamentos abertos).
